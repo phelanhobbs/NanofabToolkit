@@ -1,9 +1,10 @@
 import os
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import numpy as np
+import matplotlib.cm as cm  # For color maps
+from numpy import array, zeros, where
 
 # Import your peak counter module
 from .peakCount import count_peaks, multi_file_plot
@@ -68,7 +69,7 @@ class PeakCounterGUI:
                   command=self.reset_zoom).pack(side=tk.LEFT, padx=10)
 
         # Plot area
-        self.fig = plt.Figure(figsize=(9, 5))
+        self.fig = Figure(figsize=(9, 5))
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
@@ -252,7 +253,7 @@ class PeakCounterGUI:
         ax = self.fig.add_subplot(111)
         
         # Use a different color for each file
-        colors = plt.cm.tab10.colors
+        colors = cm.tab10.colors
         marker_styles = ['o', 's', '^', 'd', 'x', '+', '*', 'v', '<', '>']
         
         for i, (filename, peak_count, pressure_times, pressures, peaks) in enumerate(self.results):
