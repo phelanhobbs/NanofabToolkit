@@ -11,6 +11,10 @@ peak-counter-gui
 │   ├── peakCount.py    # Peak counting logic
 │   └── assets
 │       └── icon.py     # Application icon definition
+├── build               # Directory containing build artifacts
+│   └── peak-counter    # Built application
+├── dist                # Distribution packages 
+│   └── peak-counter.exe  # Built application on windows 
 ├── tests
 │   └── test_peakCount.py # Unit tests for peak counting functionality
 ├── requirements.txt     # Project dependencies
@@ -22,7 +26,7 @@ peak-counter-gui
 
 1. Clone the repository:
    ```
-   git clone <repository-url>
+   git clone git@github.com:phelanhobbs/ALDPeakCounter.git
    cd peak-counter-gui
    ```
 
@@ -38,16 +42,30 @@ peak-counter-gui
    python main.py
    ```
 
-2. Input the path to your pressure data file and set the parameters for peak detection (height, prominence, distance, width).
+2. Working with the application:
+- Add data files using the file selection dialog
+- Set peak detection parameters (height, prominence, distance, width)
+- Process the files to detect peaks
+- Apply offsets to adjust data as needed
+- View results in both text format and interactive plots
+- Reset offsets if necessary
 
-3. Click the "Count Peaks" button to analyze the data and visualize the detected peaks.
+## Building an Executable
+
+To build a standalone executable:
+
+   ```
+   pip install pyinstaller pyinstaller --onefile --windowed main.py
+   ```
+The executable will be created in the `dist` directory.
 
 ## Testing
 
-To run the unit tests for the peak counting functionality, navigate to the `tests` directory and run:
-```
-pytest test_peakCount.py
-```
+To run the unit tests for the peak counting functionality:
+
+   ```
+   pytest test_peakCount.py
+   ```
 
 ## Contributing
 
