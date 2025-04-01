@@ -1,3 +1,43 @@
-# Ignore the build directory and dist directory
+# Build outputs
 /build/
 /dist/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment and virtual environments
+/venv/
+/.venv/
+/env/
+/.env
+.env.*
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+*.spec
+*.log
+*.db
+
+# Package distribution
+*.egg-info/
+*.egg
+
+# Cache directories
+.pytest_cache/
+.coverage
+htmlcov/
+
+# React/Node.js (if you have frontend components)
+/node_modules/
+/coverage/
+/.next/
+/.nuxt/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
