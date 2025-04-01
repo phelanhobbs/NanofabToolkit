@@ -1,33 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
+
+# Collect all necessary packages
+scipy_ret = collect_all('scipy')
+numpy_ret = collect_all('numpy') 
+matplotlib_ret = collect_all('matplotlib')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[
+    datas=scipy_ret[0] + numpy_ret[0] + matplotlib_ret[0],  # datas
+    hiddenimports=scipy_ret[2] + numpy_ret[2] + matplotlib_ret[2] + [
         'matplotlib.backends.backend_tkagg',
-        'scipy.signal.windows._windows',
-        'scipy.signal.windows.windows',
-        'scipy.linalg',
-        'scipy._lib._array_api',
-        'scipy._lib.array_api_compat',
-        'scipy._lib.array_api_compat.numpy',
-        'numpy.f2py',
-        'numpy.f2py.f2py2e',
-        'numpy.f2py.crackfortran',
-        'numpy.f2py.auxfuncs',
-        'numpy.f2py.cfuncs',
-        'numpy.random.common',
-        'numpy.random.bounded_integers',
-        'numpy.random.entropy',
-        'numpy.random.mtrand',
     ],
-    hookspath=[],
+    hookspath=['.'],  # Look for hooks in current directory
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['f2py_hook.py'],  # Add our runtime hook
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -51,11 +42,11 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,  # Changed to True to see errors; change back to False for release
+    console=False,  # Set to False for no console window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico',  # Make sure this file exists
+    icon='icon.ico',
 )
