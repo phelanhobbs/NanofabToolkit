@@ -56,8 +56,9 @@ To build a standalone executable:
 
    ```
    pip install pyinstaller 
-   pyinstaller --onefile --windowed main.py
+   pyinstaller .\peak-counter.spec
    ```
+   
 The executable will be created in the `dist` directory.
 
 ## Testing
