@@ -19,7 +19,12 @@ a = Analysis(
     runtime_hooks=['hook-runtime.py'],
     excludes=['matplotlib.tests', 'numpy.tests', 'scipy.tests', 
               'PIL.ImageQt', 'PySide2', 'PyQt5', 'PyQt6', 'PySide6',
-              'IPython', 'pandas', 'sphinx', 'jupyter', 'pytest'],
+              'IPython', 'pandas', 'sphinx', 'jupyter', 'pytest',
+              'matplotlib.backends.backend_qt5agg', 'matplotlib.backends.backend_qt4agg'
+              'matplotlib.backends.backend_cairo', 'matplotlib.backends.backend_gtk3cairo',
+              'scipy.signal.windows.multiprocess'
+              'unittest', 'doctest', 'pdb', 'tkinter.test'
+              'email', 'xmlrpc', 'pip', 'markupsafe'],
     noarchive=False,
 )
 
@@ -37,8 +42,10 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=True,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=['vcruntime140.dll', 'msvcp140.dll', 'python3*.dll'],
     runtime_tmpdir=None,
     console=False,
     icon='icon.ico',
+    compress=True,
+    lzma_compress=True,
 )
