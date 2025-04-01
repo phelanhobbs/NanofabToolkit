@@ -55,7 +55,8 @@ peak-counter-gui
 To build a standalone executable:
 
    ```
-   pip install pyinstaller pyinstaller --onefile --windowed main.py
+   pip install pyinstaller 
+   pyinstaller --onefile --windowed main.py
    ```
 The executable will be created in the `dist` directory.
 
