@@ -25,6 +25,10 @@ class PeakCounterGUI:
         self.distance_var = tk.IntVar(value=10)
         self.width_var = tk.DoubleVar(value=0.0)
         
+        # Variables for zoom functionality
+        self.zoom_rect = None
+        self.zooming = False
+        
         self._create_widgets()
         
     def _create_widgets(self):
@@ -49,6 +53,31 @@ class PeakCounterGUI:
         
         plot_frame = ttk.Frame(self.root, padding=10)
         plot_frame.pack(fill=tk.BOTH, side=tk.BOTTOM, expand=True)
+
+        # Add instruction frame above the plot
+        instruction_frame = ttk.Frame(plot_frame)
+        instruction_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+
+        # Add zoom instructions
+        ttk.Label(instruction_frame, 
+                 text="Click and drag to zoom into a specific area of the graph", 
+                 font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
+
+        # Add reset zoom button next to instructions
+        ttk.Button(instruction_frame, text="Reset Zoom", 
+                  command=self.reset_zoom).pack(side=tk.LEFT, padx=10)
+
+        # Plot area
+        self.fig = plt.Figure(figsize=(9, 5))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Add box zoom functionality
+        self.zoom_rect = None
+        self.zooming = False
+        self.canvas.mpl_connect('button_press_event', self.on_mouse_press)
+        self.canvas.mpl_connect('button_release_event', self.on_mouse_release)
+        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
         
         # File selection controls
         file_controls = ttk.Frame(control_frame)
@@ -87,12 +116,7 @@ class PeakCounterGUI:
         # Results section
         self.results_text = tk.Text(files_frame, height=10)
         self.results_text.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        # Plot area
-        self.fig = plt.Figure(figsize=(9, 5))
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        
+    
     def add_files(self):
         files = filedialog.askopenfilenames(
             title="Select Data Files",
@@ -260,6 +284,34 @@ class PeakCounterGUI:
         ax.grid(True)
         ax.legend()
         
+        self.canvas.draw()
+
+    def on_mouse_press(self, event):
+        if event.inaxes:
+            self.zooming = True
+            self.zoom_rect = [event.xdata, event.ydata, event.xdata, event.ydata]
+
+    def on_mouse_release(self, event):
+        if self.zooming and self.zoom_rect and event.inaxes:
+            self.zoom_rect[2] = event.xdata
+            self.zoom_rect[3] = event.ydata
+            self.zooming = False
+            self.apply_zoom()
+
+    def on_mouse_move(self, event):
+        if self.zooming and self.zoom_rect and event.inaxes:
+            self.zoom_rect[2] = event.xdata
+            self.zoom_rect[3] = event.ydata
+
+    def apply_zoom(self):
+        if self.zoom_rect:
+            x_min, y_min, x_max, y_max = self.zoom_rect
+            self.fig.axes[0].set_xlim(min(x_min, x_max), max(x_min, x_max))
+            self.fig.axes[0].set_ylim(min(y_min, y_max), max(y_min, y_max))
+            self.canvas.draw()
+
+    def reset_zoom(self):
+        self.fig.axes[0].autoscale()
         self.canvas.draw()
     
     def run(self):
