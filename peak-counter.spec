@@ -16,7 +16,7 @@ a = Analysis(
     hiddenimports=['numpy.f2py', 'numpy.f2py.crackfortran', 'scipy.special.cython_special'],
     hookspath=[],  # Remove current directory from hook search path
     hooksconfig={},
-    runtime_hooks=['hook-runtime.py'],
+    runtime_hooks=['./pyinstaller/hooks/hook-runtime.py'],
     excludes=['matplotlib.tests', 'numpy.tests', 'scipy.tests', 
               'PIL.ImageQt', 'PySide2', 'PyQt5', 'PyQt6', 'PySide6',
               'IPython', 'pandas', 'sphinx', 'jupyter', 'pytest',
