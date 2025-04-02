@@ -20,11 +20,10 @@ a = Analysis(
     excludes=['matplotlib.tests', 'numpy.tests', 'scipy.tests', 
               'PIL.ImageQt', 'PySide2', 'PyQt5', 'PyQt6', 'PySide6',
               'IPython', 'pandas', 'sphinx', 'jupyter', 'pytest',
-              'matplotlib.backends.backend_qt5agg', 'matplotlib.backends.backend_qt4agg'
+              'matplotlib.backends.backend_qt5agg', 'matplotlib.backends.backend_qt4agg',
               'matplotlib.backends.backend_cairo', 'matplotlib.backends.backend_gtk3cairo',
-              'scipy.signal.windows.multiprocess'
-              'unittest', 'doctest', 'pdb', 'tkinter.test'
-              'email', 'xmlrpc', 'pip', 'markupsafe'],
+              'scipy.signal.windows.multiprocess',
+              'doctest', 'pdb', 'tkinter.test', 'xmlrpc', 'pip', 'markupsafe'],
     noarchive=False,
 )
 
@@ -45,7 +44,7 @@ exe = EXE(
     upx_exclude=['vcruntime140.dll', 'msvcp140.dll', 'python3*.dll'],
     runtime_tmpdir=None,
     console=False,
-    icon='icon.ico',
+    icon='./src/assets/icon.ico',
     compress=True,
     lzma_compress=True,
 )
