@@ -1,19 +1,18 @@
 # Build outputs
-/build/
-/dist/
-/tests/
+build/
+dist/
 __pycache__/
 *.pyc
-/src/__pycache__/
+*/__pycache__/
 *.py[cod]
 *$py.class
 *.so
 
 # Environment and virtual environments
-/venv/
-/.venv/
-/env/
-/.env
+venv/
+.venv/
+env/
+.env
 .env.*
 
 # IDE specific files
@@ -37,10 +36,13 @@ __pycache__/
 htmlcov/
 
 # React/Node.js (if you have frontend components)
-/node_modules/
-/coverage/
-/.next/
-/.nuxt/
+node_modules/
+coverage/
+.next/
+.nuxt/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+#testing stuff
+*/tests/
