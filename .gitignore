@@ -46,3 +46,4 @@ yarn-error.log*
 
 #testing stuff
 */tests/
+tests/*
