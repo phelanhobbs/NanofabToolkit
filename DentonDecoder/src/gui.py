@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import os
 import threading
 from pathlib import Path
@@ -74,6 +74,11 @@ class DentonGUI(tk.Tk):
         # Embed matplotlib figure in tkinter
         self.canvas = FigureCanvasTkAgg(self.figure, graph_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Add navigation toolbar for interactivity
+        self.toolbar = NavigationToolbar2Tk(self.canvas, graph_frame)
+        self.toolbar.update()
+        self.toolbar.pack(side=tk.BOTTOM, fill=tk.X)
         
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
@@ -157,32 +162,24 @@ class DentonGUI(tk.Tk):
         
         def graph_thread():
             try:
-                # Use the existing create_graph function but capture the figure
-                temp_output = os.path.join(os.path.dirname(self.csv_file), "temp_graph.png")
-                success = create_graph(
-                    self.csv_file,
-                    column_name=column,
-                    output_file=temp_output,
-                    show_graph=False,
-                    log_scale=log_scale
-                )
+                # Use the create_graph function to get data
+                from DentonGrapher import create_graph
+                times, values = create_graph(self.csv_file, column_name=column, log_scale=log_scale)
                 
-                if success:
-                    # Load the graph from the file and display it in our canvas
-                    img = plt.imread(temp_output)
-                    self.ax.imshow(img)
-                    self.ax.axis('off')  # Hide axes
-                    self.canvas.draw()
-                    
-                    # Clean up the temporary file
-                    try:
-                        os.remove(temp_output)
-                    except:
-                        pass
-                    
-                    self.after(10, lambda: self.status_var.set(f"Graph generated for {column}"))
-                else:
-                    self.after(10, lambda: self.status_var.set("Error: Failed to generate graph"))
+                # Plot the data in the tkinter canvas
+                self.ax.plot(times, values, label=column)
+                self.ax.set_xlabel("Time (seconds since start)")
+                self.ax.set_ylabel(column)
+                self.ax.set_title(f"{column} vs Time")
+                self.ax.grid(True)
+                
+                if log_scale:
+                    self.ax.set_yscale("log")
+                
+                self.ax.legend()
+                self.canvas.draw()
+                
+                self.after(10, lambda: self.status_var.set(f"Graph generated for {column}"))
             except Exception as e:
                 self.after(10, lambda: messagebox.showerror("Error", f"Failed to generate graph: {str(e)}"))
                 self.after(10, lambda: self.status_var.set("Error: Graph generation failed"))
