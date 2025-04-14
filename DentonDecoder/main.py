@@ -4,6 +4,10 @@ import traceback
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
 
+# Set matplotlib backend before any matplotlib imports
+import matplotlib
+matplotlib.use('TkAgg')  # Force TkAgg backend for compatibility
+
 def show_error_dialog(title, message):
     """Display a scrollable error dialog with the full traceback"""
     # Create a root window

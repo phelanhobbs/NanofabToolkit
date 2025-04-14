@@ -165,29 +165,47 @@ class DentonGUI(tk.Tk):
         
         def graph_thread():
             try:
-                # Use the create_graph function to get data
-                from DentonGrapher import create_graph
+                # Use the DentonGrapher module to get data
                 times, values = create_graph(self.csv_file, column_name=column, log_scale=log_scale)
                 
-                # Plot the data in the tkinter canvas
-                self.ax.plot(times, values, label=column)
-                self.ax.set_xlabel("Time (seconds since start)")
-                self.ax.set_ylabel(column)
-                self.ax.set_title(f"{column} vs Time")
-                self.ax.grid(True)
-                
-                if log_scale:
-                    self.ax.set_yscale("log")
-                
-                self.ax.legend()
-                self.canvas.draw()
-                
-                self.after(10, lambda: self.status_var.set(f"Graph generated for {column}"))
+                # Schedule the UI update on the main thread
+                self.after(10, lambda: self.update_plot(times, values, column, log_scale))
             except Exception as e:
-                self.after(10, lambda: messagebox.showerror("Error", f"Failed to generate graph: {str(e)}"))
+                import traceback
+                error_details = traceback.format_exc()
+                self.after(10, lambda: messagebox.showerror("Error", f"Failed to generate graph: {str(e)}\n\n{error_details}"))
                 self.after(10, lambda: self.status_var.set("Error: Graph generation failed"))
         
         threading.Thread(target=graph_thread).start()
+
+    def update_plot(self, times, values, column, log_scale):
+        """Update the plot with the data - runs in the main thread"""
+        try:
+            # Plot the data in the tkinter canvas
+            self.ax.plot(times, values, label=column)
+            self.ax.set_xlabel("Time (seconds since start)")
+            self.ax.set_ylabel(column)
+            self.ax.set_title(f"{column} vs Time")
+            self.ax.grid(True)
+            
+            if log_scale:
+                self.ax.set_yscale("log")
+            else:
+                self.ax.set_yscale("linear")  # Explicitly set linear scale
+            
+            self.ax.legend()
+            
+            # Force a complete redraw of the canvas
+            self.figure.tight_layout()
+            self.canvas.draw()
+            self.canvas.flush_events()
+            
+            self.status_var.set(f"Graph generated for {column}")
+        except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            messagebox.showerror("Error", f"Failed to update plot: {str(e)}\n\n{error_details}")
+            self.status_var.set("Error: Plot update failed")
 
 if __name__ == "__main__":
     app = DentonGUI()
