@@ -7,12 +7,15 @@ import threading
 from pathlib import Path
 import sys
 
-# Add the current directory to the path if needed
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory to the path to find modules correctly
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
-# Import from the Denton modules
-from DentonDecoder import convertFile
-from DentonGrapher import create_graph
+# Import from the Denton modules - use relative or absolute imports based on your structure
+from src.DentonDecoder import convertFile
+from src.DentonGrapher import create_graph
 
 class DentonGUI(tk.Tk):
     def __init__(self):
