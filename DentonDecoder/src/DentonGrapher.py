@@ -5,7 +5,7 @@ import numpy as np
 import csv
 from pathlib import Path
 
-def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=None, show_graph=True, log_scale=False):
+def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=None, show_graph=True, log_scale=False, return_data=False):
     """
     Create a graph of a selected column vs time from a CSV log file.
     
@@ -15,6 +15,11 @@ def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=
         output_file: Path to save the graph (optional)
         show_graph: If True, displays the graph (default: True)
         log_scale: If True, uses logarithmic scale for y-axis (default: False)
+        return_data: If True, returns (times, values) tuple instead of plotting (default: False)
+    
+    Returns:
+        If return_data=True: tuple of (times, values)
+        If return_data=False: Boolean indicating success
     """
     try:
         # Read the CSV file
@@ -31,7 +36,7 @@ def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=
             except ValueError:
                 print(f"Column '{column_name}' not found in CSV file.")
                 print(f"Available columns: {', '.join(headers)}")
-                return False
+                return ([], []) if return_data else False
             
             # Data structures for the graph
             times = []
@@ -74,6 +79,10 @@ def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=
                     # Skip if time can't be parsed
                     continue
         
+        # If we're just returning data, do that now
+        if return_data:
+            return (times, values)
+            
         # Create the graph if we have data
         if times and values:
             # Create figure and axis
@@ -118,7 +127,7 @@ def create_graph(input_file, column_name="Chamber Pressure (Torr)", output_file=
         
     except Exception as e:
         print(f"Error processing file: {e}")
-        return False
+        return ([], []) if return_data else False
 
 def main():
     parser = argparse.ArgumentParser(description="Create time series graph from CSV log file")
