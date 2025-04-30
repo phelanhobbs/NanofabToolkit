@@ -38,15 +38,44 @@ class DentonGUI(tk.Tk):
         self.create_widgets()
         
     def generate_distinct_colors(self, n):
-        """Generate n visually distinct colors"""
-        colors = []
-        for i in range(n):
+        """Generate n visually distinct colors with emphasis on primary colors"""
+        # Start with high-contrast primary and secondary colors
+        primary_colors = [
+            '#FF0000',  # Red
+            '#0000FF',  # Blue
+            '#00CC00',  # Green 
+            '#FF00FF',  # Magenta
+            '#FFCC00',  # Yellow
+            '#00CCFF',  # Cyan
+            '#FF6600',  # Orange
+            '#9900CC',  # Purple
+            '#006600',  # Dark Green
+            '#CC0000',  # Dark Red
+            '#000099',  # Dark Blue
+            '#FF9999',  # Light Red
+            '#9999FF',  # Light Blue
+            '#99FF99',  # Light Green
+            '#FF99FF',  # Light Pink
+            '#FFFF99',  # Light Yellow
+            '#99FFFF'   # Light Cyan
+        ]
+        
+        # If we need more colors than in our preset list, add generated ones
+        if n <= len(primary_colors):
+            return primary_colors[:n]
+        
+        # Add more generated colors using HSV space for the remaining colors
+        colors = primary_colors.copy()
+        remaining = n - len(colors)
+        
+        for i in range(remaining):
             # Use HSV color space to get evenly spaced hues
-            h = i / n
-            s = 0.7 + 0.3 * (i % 3) / 2  # Vary saturation slightly
-            v = 0.8 + 0.2 * ((i // 3) % 2)  # Vary value slightly
+            h = i / remaining
+            s = 0.85 if i % 2 else 0.7  # Alternate between high and medium saturation
+            v = 0.9 if i % 4 < 2 else 0.7  # Alternate between high and medium value
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             colors.append(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
+        
         return colors
         
     def create_widgets(self):
@@ -403,15 +432,33 @@ class DentonGUI(tk.Tk):
             return
             
         try:
+            # Define line styles and markers for additional distinctiveness
+            line_styles = ['-', '--', '-.', ':']
+            markers = ['o', 's', '^', 'D', 'v', '*', 'p', 'h', '+', 'x']
+            
             # Plot each file's data
             for i, (file_info, times, values) in enumerate(file_data):
                 if not times or not values:
                     continue
                     
                 filename = os.path.basename(file_info['original_path'])
-                color = self.color_cycle[i % len(self.color_cycle)]  # Use cycling colors
+                color = self.color_cycle[i % len(self.color_cycle)]
+                line_style = line_styles[i % len(line_styles)]
+                marker = markers[i % len(markers)]
                 
-                self.ax.plot(times, values, label=filename, color=color)
+                # Use different marker frequency based on data length
+                marker_every = max(len(times) // 20, 1) if len(times) > 20 else None
+                
+                self.ax.plot(
+                    times, 
+                    values, 
+                    label=filename, 
+                    color=color,
+                    linestyle=line_style,
+                    marker=marker,
+                    markevery=marker_every,
+                    markersize=5
+                )
             
             # Configure plot
             self.ax.set_xlabel("Time (seconds since start)")
