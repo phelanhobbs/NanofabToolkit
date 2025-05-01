@@ -116,9 +116,9 @@ class DentonGUI(tk.Tk):
         self.file_list.heading("status", text="Status")
         
         # Configure column widths
-        self.file_list.column("file", width=400, anchor="w")
-        self.file_list.column("type", width=100, anchor="center")
-        self.file_list.column("status", width=150, anchor="center")
+        self.file_list.column("file", width=625, anchor="w")
+        self.file_list.column("type", width=10, anchor="center")
+        self.file_list.column("status", width=15, anchor="center")
         
         self.file_list.pack(fill=tk.BOTH, expand=True)
         self.file_list.config(yscrollcommand=file_list_scrollbar.set)
