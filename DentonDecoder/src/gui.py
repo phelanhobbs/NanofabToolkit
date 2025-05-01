@@ -94,7 +94,7 @@ class DentonGUI(tk.Tk):
         main_frame = ttk.Frame(self)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Create file selection frame
+        # Create file selection frame at the top
         file_frame = ttk.LabelFrame(main_frame, text="File Selection")
         file_frame.pack(fill=tk.X, padx=5, pady=5)
         
@@ -132,28 +132,37 @@ class DentonGUI(tk.Tk):
         ttk.Button(file_button_frame, text="Remove Selected", command=self.remove_selected_files).pack(side=tk.LEFT, padx=5)
         ttk.Button(file_button_frame, text="Clear All Files", command=self.clear_all_files).pack(side=tk.LEFT, padx=5)
         
-        # Create graph options frame
-        options_frame = ttk.LabelFrame(main_frame, text="Graph Options")
-        options_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Create a horizontal paned window for side-by-side layout
+        h_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        h_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Create graph options frame (LEFT SIDE)
+        options_frame = ttk.LabelFrame(h_paned, text="Graph Options")
+        h_paned.add(options_frame, weight=1)  # weight=1 gives proportional space
+        
+        # Pad the options to make them look better
+        options_inner_frame = ttk.Frame(options_frame)
+        options_inner_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # Column selection
-        ttk.Label(options_frame, text="Select column to graph:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(options_inner_frame, text="Select column to graph:").pack(anchor="w", pady=(0, 5))
         self.column_var = tk.StringVar(value="Chamber Pressure (Torr)")
-        self.column_dropdown = ttk.Combobox(options_frame, textvariable=self.column_var, width=40, state="readonly")
-        self.column_dropdown.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.column_dropdown = ttk.Combobox(options_inner_frame, textvariable=self.column_var, 
+                                           width=30, state="readonly")
+        self.column_dropdown.pack(fill=tk.X, pady=(0, 10))
         
         # Log scale option
         self.log_scale_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(options_frame, text="Use logarithmic scale", variable=self.log_scale_var).grid(
-            row=1, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+        ttk.Checkbutton(options_inner_frame, text="Use logarithmic scale", 
+                       variable=self.log_scale_var).pack(anchor="w", pady=(0, 10))
         
         # Graph button
-        ttk.Button(options_frame, text="Generate Graph", command=self.generate_graph).grid(
-            row=2, column=0, columnspan=2, padx=5, pady=5)
+        ttk.Button(options_inner_frame, text="Generate Graph", 
+                  command=self.generate_graph).pack(fill=tk.X, pady=(0, 20))
         
-        # Create graph frame
-        graph_frame = ttk.LabelFrame(main_frame, text="Graph")
-        graph_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Create graph frame (RIGHT SIDE)
+        graph_frame = ttk.LabelFrame(h_paned, text="Graph")
+        h_paned.add(graph_frame, weight=3)  # weight=3 gives it more space than options
         
         # Add time offset slider frame ABOVE the chart
         time_offset_frame = ttk.LabelFrame(graph_frame, text="Time Alignment")
