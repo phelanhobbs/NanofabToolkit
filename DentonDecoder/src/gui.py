@@ -35,6 +35,17 @@ class DentonGUI(tk.Tk):
         # Generate distinct colors for plots
         self.color_cycle = self.generate_distinct_colors(20)  # Generate 20 distinct colors
         
+        # Track the selected file for time offset (index in file_data)
+        self.selected_file_index = 0
+        
+        # Store per-file time offsets
+        self.file_offsets = {}  # Map from file path to time offset
+        
+        # Store the current plot data for replotting when time offset changes
+        self.current_file_data = []
+        self.current_column = ""
+        self.current_log_scale = False
+        
         self.create_widgets()
         
     def generate_distinct_colors(self, n):
@@ -143,6 +154,51 @@ class DentonGUI(tk.Tk):
         # Create graph frame
         graph_frame = ttk.LabelFrame(main_frame, text="Graph")
         graph_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Add time offset slider frame ABOVE the chart
+        time_offset_frame = ttk.LabelFrame(graph_frame, text="Time Alignment")
+        time_offset_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Add file selector for time offset
+        file_select_frame = ttk.Frame(time_offset_frame)
+        file_select_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(file_select_frame, text="Select file to adjust:").pack(side=tk.LEFT, padx=5)
+        self.file_selector_var = tk.StringVar()
+        self.file_selector = ttk.Combobox(file_select_frame, textvariable=self.file_selector_var, 
+                                         width=40, state="readonly")
+        self.file_selector.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.file_selector.bind("<<ComboboxSelected>>", self.on_file_selected)
+        
+        # Slider frame
+        slider_frame = ttk.Frame(time_offset_frame)
+        slider_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(slider_frame, text="Time Offset (seconds):").pack(side=tk.LEFT, padx=5)
+        
+        # Time offset slider with a range of -300 to +300 seconds
+        self.time_offset_var = tk.DoubleVar(value=0.0)
+        self.time_offset_slider = ttk.Scale(
+            slider_frame, 
+            from_=-300.0, 
+            to=300.0, 
+            variable=self.time_offset_var, 
+            orient=tk.HORIZONTAL,
+            command=self.update_time_offset
+        )
+        self.time_offset_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # Display the current offset value
+        self.time_offset_label = ttk.Label(slider_frame, text="0.0")
+        self.time_offset_label.pack(side=tk.LEFT, padx=5)
+        
+        # Reset button for time offset
+        ttk.Button(slider_frame, text="Reset Offset", 
+                  command=self.reset_time_offset).pack(side=tk.LEFT, padx=5)
+        
+        # Reset all files button
+        ttk.Button(slider_frame, text="Reset All Files", 
+                  command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)
         
         # Create matplotlib figure
         self.figure = plt.Figure(figsize=(8, 6))
@@ -425,13 +481,36 @@ class DentonGUI(tk.Tk):
         # Start checking for thread completion
         update_plot_when_ready()
 
-    def update_plot(self, file_data, column, log_scale):
+    def update_plot(self, file_data, column, log_scale, apply_offset=False):
         """Update the plot with data from multiple files"""
         if not file_data:
             self.status_var.set("No data to plot")
             return
+        
+        # Store current plot data for use with the slider
+        if not apply_offset:
+            self.current_file_data = file_data
+            self.current_column = column
+            self.current_log_scale = log_scale
+            
+            # Update file selector dropdown with file names
+            file_names = [os.path.basename(info[0]['original_path']) for info in file_data]
+            self.file_selector['values'] = file_names
+            
+            # Select first file by default
+            if file_names:
+                self.file_selector.current(0)
+                self.selected_file_index = 0
+                # Show current offset for the selected file
+                file_path = file_data[0][0]['original_path']
+                current_offset = self.file_offsets.get(file_path, 0.0)
+                self.time_offset_var.set(current_offset)
+                self.time_offset_label.config(text=f"{current_offset:.1f}")
             
         try:
+            # Clear previous graph
+            self.ax.clear()
+            
             # Define line styles and markers for additional distinctiveness
             line_styles = ['-', '--', '-.', ':']
             markers = ['o', 's', '^', 'D', 'v', '*', 'p', 'h', '+', 'x']
@@ -440,6 +519,13 @@ class DentonGUI(tk.Tk):
             for i, (file_info, times, values) in enumerate(file_data):
                 if not times or not values:
                     continue
+                    
+                # Get the offset for this file (if any)
+                file_path = file_info['original_path']
+                offset = self.file_offsets.get(file_path, 0.0)
+                
+                # Apply time offset if needed
+                adjusted_times = [t + offset for t in times]
                     
                 filename = os.path.basename(file_info['original_path'])
                 color = self.color_cycle[i % len(self.color_cycle)]
@@ -450,9 +536,9 @@ class DentonGUI(tk.Tk):
                 marker_every = max(len(times) // 20, 1) if len(times) > 20 else None
                 
                 self.ax.plot(
-                    times, 
+                    adjusted_times, 
                     values, 
-                    label=filename, 
+                    label=f"{filename} (offset: {offset:.1f}s)" if offset != 0 else filename, 
                     color=color,
                     linestyle=line_style,
                     marker=marker,
@@ -463,7 +549,7 @@ class DentonGUI(tk.Tk):
             # Configure plot
             self.ax.set_xlabel("Time (seconds since start)")
             self.ax.set_ylabel(column)
-            self.ax.set_title(f"{column} vs Time (Multiple Files)")
+            self.ax.set_title(f"{column} vs Time")
             self.ax.grid(True)
             
             if log_scale:
@@ -482,13 +568,74 @@ class DentonGUI(tk.Tk):
             self.canvas.draw()
             self.canvas.flush_events()
             
-            self.status_var.set(f"Graph generated for {column} with {len(file_data)} files")
+            if not apply_offset:
+                self.status_var.set(f"Graph generated for {column} with {len(file_data)} files")
             
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             messagebox.showerror("Error", f"Failed to update plot: {str(e)}\n\n{error_details}")
             self.status_var.set("Error: Plot update failed")
+
+    def on_file_selected(self, event=None):
+        """Handle file selection for time offset adjustment"""
+        selected = self.file_selector_var.get()
+        
+        # Find the index of the selected file in current_file_data
+        for i, (file_info, _, _) in enumerate(self.current_file_data):
+            filename = os.path.basename(file_info['original_path'])
+            if filename == selected:
+                self.selected_file_index = i
+                
+                # Update slider to show current offset for this file
+                current_offset = self.file_offsets.get(file_info['original_path'], 0.0)
+                self.time_offset_var.set(current_offset)
+                self.time_offset_label.config(text=f"{current_offset:.1f}")
+                break
+    
+    def update_time_offset(self, event=None):
+        """Update the time offset for the selected file"""
+        if not self.current_file_data or self.selected_file_index >= len(self.current_file_data):
+            return
+            
+        offset_value = self.time_offset_var.get()
+        self.time_offset_label.config(text=f"{offset_value:.1f}")
+        
+        # Store the offset for this file
+        file_info = self.current_file_data[self.selected_file_index][0]
+        self.file_offsets[file_info['original_path']] = offset_value
+        
+        # Update the plot with new offsets
+        self.update_plot(self.current_file_data, self.current_column, 
+                        self.current_log_scale, apply_offset=True)
+    
+    def reset_time_offset(self):
+        """Reset the time offset for the selected file"""
+        if not self.current_file_data or self.selected_file_index >= len(self.current_file_data):
+            return
+            
+        # Reset offset for the selected file
+        file_info = self.current_file_data[self.selected_file_index][0]
+        self.file_offsets[file_info['original_path']] = 0.0
+        
+        # Update slider
+        self.time_offset_var.set(0.0)
+        self.time_offset_label.config(text="0.0")
+        
+        # Update the plot
+        self.update_plot(self.current_file_data, self.current_column, 
+                        self.current_log_scale, apply_offset=True)
+    
+    def reset_all_offsets(self):
+        """Reset time offsets for all files"""
+        self.file_offsets.clear()
+        self.time_offset_var.set(0.0)
+        self.time_offset_label.config(text="0.0")
+        
+        # Update the plot
+        if self.current_file_data:
+            self.update_plot(self.current_file_data, self.current_column, 
+                           self.current_log_scale, apply_offset=True)
 
 if __name__ == "__main__":
     app = DentonGUI()
