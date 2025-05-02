@@ -156,6 +156,11 @@ class DentonGUI(tk.Tk):
         ttk.Checkbutton(options_inner_frame, text="Use logarithmic scale", 
                        variable=self.log_scale_var).pack(anchor="w", pady=(0, 10))
         
+        # Auto-zoom toggle for the x-axis
+        self.auto_zoom_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(options_inner_frame, text="Auto-zoom to active data", 
+                       variable=self.auto_zoom_var).pack(anchor="w", pady=(0, 10))
+        
         # Graph button
         ttk.Button(options_inner_frame, text="Generate Graph", 
                   command=self.generate_graph).pack(fill=tk.X, pady=(0, 20))
@@ -552,6 +557,32 @@ class DentonGUI(tk.Tk):
             line_styles = ['-', '--', '-.', ':']
             markers = ['o', 's', '^', 'D', 'v', '*', 'p', 'h', '+', 'x']
             
+            # Track the full time range across all files
+            all_min_time = float('inf')
+            all_max_time = float('-inf')
+            
+            # Track time range of data points (not just endpoints)
+            active_data_points = []
+            
+            # First pass - calculate time ranges and collect active data points
+            for i, (file_info, times, values) in enumerate(file_data):
+                if not times or not values:
+                    continue
+                    
+                # Get the offset for this file
+                file_path = file_info['original_path']
+                offset = self.file_offsets.get(file_path, 0.0)
+                
+                # Calculate min and max times considering offset
+                if times:
+                    file_min = min(times) + offset
+                    file_max = max(times) + offset
+                    all_min_time = min(all_min_time, file_min)
+                    all_max_time = max(all_max_time, file_max)
+                    
+                    # Collect all time points for active data calculation
+                    active_data_points.extend([t + offset for t in times])
+            
             # Plot each file's data
             for i, (file_info, times, values) in enumerate(file_data):
                 if not times or not values:
@@ -604,6 +635,29 @@ class DentonGUI(tk.Tk):
                 self.ax.legend(fontsize='small', loc='best')
             else:
                 self.ax.legend(loc='best')
+            
+            # Set x-axis limits with intelligent padding
+            if active_data_points and all_min_time != float('inf') and all_max_time != float('-inf'):
+                if hasattr(self, 'auto_zoom_var') and self.auto_zoom_var.get():
+                    # Auto-zoom to focus on the data density
+                    # Sort all data points and find 5th and 95th percentiles to focus on main data
+                    sorted_times = sorted(active_data_points)
+                    lower_idx = max(0, int(len(sorted_times) * 0.05))
+                    upper_idx = min(len(sorted_times) - 1, int(len(sorted_times) * 0.95))
+                    
+                    focus_min = sorted_times[lower_idx]
+                    focus_max = sorted_times[upper_idx]
+                    focus_range = focus_max - focus_min
+                    
+                    # Add padding
+                    padding = focus_range * 0.1
+                    self.ax.set_xlim(focus_min - padding, focus_max + padding)
+                    
+                else:
+                    # Show all data with padding
+                    time_range = all_max_time - all_min_time
+                    padding = max(time_range * 0.05, 1.0)  # At least 1 second padding
+                    self.ax.set_xlim(all_min_time - padding, all_max_time + padding)
             
             # Force a complete redraw of the canvas
             self.figure.tight_layout()
