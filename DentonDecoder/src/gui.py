@@ -202,9 +202,20 @@ class DentonGUI(tk.Tk):
         )
         self.time_offset_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
-        # Display the cur+rent offset value
-        self.time_offset_label = ttk.Label(slider_frame, text="0.0")
-        self.time_offset_label.pack(side=tk.LEFT, padx=5)
+        # Add decrease button for fine adjustment
+        ttk.Button(slider_frame, text="◄", width=2, 
+                  command=lambda: self.adjust_time_offset(-1.0)).pack(side=tk.LEFT)
+        
+        # Add editable entry field for direct input
+        self.time_offset_entry = ttk.Entry(slider_frame, width=8, 
+                                         textvariable=self.time_offset_var)
+        self.time_offset_entry.pack(side=tk.LEFT, padx=5)
+        self.time_offset_entry.bind("<Return>", self.on_offset_entry)
+        self.time_offset_entry.bind("<FocusOut>", self.on_offset_entry)
+        
+        # Add increase button for fine adjustment
+        ttk.Button(slider_frame, text="►", width=2, 
+                  command=lambda: self.adjust_time_offset(1.0)).pack(side=tk.LEFT)
         
         # Reset button for time offset
         ttk.Button(slider_frame, text="Reset Offset", 
@@ -547,7 +558,6 @@ class DentonGUI(tk.Tk):
                 file_path = file_data[0][0]['original_path']
                 current_offset = self.file_offsets.get(file_path, 0.0)
                 self.time_offset_var.set(current_offset)
-                self.time_offset_label.config(text=f"{current_offset:.1f}")
             
         try:
             # Clear previous graph
@@ -703,7 +713,6 @@ class DentonGUI(tk.Tk):
                 # Update slider to show current offset for this file
                 current_offset = self.file_offsets.get(file_info['original_path'], 0.0)
                 self.time_offset_var.set(current_offset)
-                self.time_offset_label.config(text=f"{current_offset:.1f}")
                 break
     
     def update_time_offset(self, event=None):
@@ -712,7 +721,6 @@ class DentonGUI(tk.Tk):
             return
             
         offset_value = self.time_offset_var.get()
-        self.time_offset_label.config(text=f"{offset_value:.1f}")
         
         # Store the offset for this file
         file_info = self.current_file_data[self.selected_file_index][0]
@@ -733,7 +741,6 @@ class DentonGUI(tk.Tk):
         
         # Update slider
         self.time_offset_var.set(0.0)
-        self.time_offset_label.config(text="0.0")
         
         # Update the plot
         self.update_plot(self.current_file_data, self.current_column, 
@@ -743,12 +750,51 @@ class DentonGUI(tk.Tk):
         """Reset time offsets for all files"""
         self.file_offsets.clear()
         self.time_offset_var.set(0.0)
-        self.time_offset_label.config(text="0.0")
         
         # Update the plot
         if self.current_file_data:
             self.update_plot(self.current_file_data, self.current_column, 
                            self.current_log_scale, apply_offset=True)
+
+    def adjust_time_offset(self, increment):
+        """Adjust the time offset by the given increment"""
+        current_value = self.time_offset_var.get()
+        new_value = current_value + increment
+        
+        # Ensure value is within slider range
+        min_val = self.time_offset_slider.cget('from')
+        max_val = self.time_offset_slider.cget('to')
+        new_value = max(min_val, min(max_val, new_value))
+        
+        # Update the variable which will trigger the slider update
+        self.time_offset_var.set(new_value)
+        
+        # Update the plot
+        self.update_time_offset()
+
+    def on_offset_entry(self, event=None):
+        """Handle manual entry of time offset value"""
+        try:
+            # Get the value from the entry field
+            new_value = float(self.time_offset_var.get())
+            
+            # Ensure value is within slider range
+            min_val = self.time_offset_slider.cget('from')
+            max_val = self.time_offset_slider.cget('to')
+            new_value = max(min_val, min(max_val, new_value))
+            
+            # Update the variable and the slider
+            self.time_offset_var.set(new_value)
+            
+            # Update the plot with new offset
+            self.update_time_offset()
+            
+        except ValueError:
+            # Restore the previous value if input isn't a valid number
+            if hasattr(self, 'current_file_data') and self.selected_file_index < len(self.current_file_data):
+                file_info = self.current_file_data[self.selected_file_index][0]
+                current_offset = self.file_offsets.get(file_info['original_path'], 0.0)
+                self.time_offset_var.set(current_offset)
 
 if __name__ == "__main__":
     app = DentonGUI()
