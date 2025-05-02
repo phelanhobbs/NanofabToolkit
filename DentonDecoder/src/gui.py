@@ -197,7 +197,7 @@ class DentonGUI(tk.Tk):
         )
         self.time_offset_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
-        # Display the current offset value
+        # Display the cur+rent offset value
         self.time_offset_label = ttk.Label(slider_frame, text="0.0")
         self.time_offset_label.pack(side=tk.LEFT, padx=5)
         
@@ -335,6 +335,11 @@ class DentonGUI(tk.Tk):
                 reader = csv.reader(f)
                 file_info['columns'] = next(reader)  # Get header row
                 
+                # Count rows to calculate duration
+                row_count = sum(1 for _ in reader)
+                # Calculate duration in seconds (0.85 times row count)
+                file_info['duration'] = row_count / 0.85
+                
             # Update common columns across all files
             self.update_common_columns()
             
@@ -415,6 +420,7 @@ class DentonGUI(tk.Tk):
                 
                 # Read the CSV and extract the data for the selected column
                 times, values = [], []
+                row_count = 0
                 
                 with open(csv_path, 'r', errors='replace') as f:
                     csv_reader = csv.reader(f)
@@ -428,6 +434,7 @@ class DentonGUI(tk.Tk):
                         base_time = None
                         
                         for row in csv_reader:
+                            row_count += 1
                             if not row or len(row) <= col_index:
                                 continue
                                 
@@ -458,6 +465,10 @@ class DentonGUI(tk.Tk):
                             except ValueError:
                                 # Skip if time can't be parsed
                                 continue
+                        
+                        # Calculate duration from row count if not already set
+                        if 'duration' not in file_info:
+                            file_info['duration'] = row_count / 0.85
                         
                     except ValueError:
                         self.after(10, lambda: messagebox.showerror("Error", 
@@ -510,6 +521,23 @@ class DentonGUI(tk.Tk):
             if file_names:
                 self.file_selector.current(0)
                 self.selected_file_index = 0
+                
+                # Get dynamic slider range based on file durations
+                selected_file_info = file_data[0][0]
+                current_file_duration = selected_file_info.get('duration', 300.0)
+                
+                # Find the longest file duration
+                max_duration = 300.0  # Default fallback
+                for f_info, _, _ in file_data:
+                    if 'duration' in f_info and f_info['duration'] > max_duration:
+                        max_duration = f_info['duration']
+                
+                # Update slider range
+                self.time_offset_slider.configure(
+                    from_=-current_file_duration,
+                    to=max_duration
+                )
+                
                 # Show current offset for the selected file
                 file_path = file_data[0][0]['original_path']
                 current_offset = self.file_offsets.get(file_path, 0.0)
@@ -541,13 +569,18 @@ class DentonGUI(tk.Tk):
                 line_style = line_styles[i % len(line_styles)]
                 marker = markers[i % len(markers)]
                 
+                # Include duration in the label if available
+                duration_text = ""
+                if 'duration' in file_info:
+                    duration_text = f" ({file_info['duration']:.1f}s)"
+                
                 # Use different marker frequency based on data length
                 marker_every = max(len(times) // 20, 1) if len(times) > 20 else None
                 
                 self.ax.plot(
                     adjusted_times, 
                     values, 
-                    label=f"{filename} (offset: {offset:.1f}s)" if offset != 0 else filename, 
+                    label=f"{filename}{duration_text} [offset: {offset:.1f}s]" if offset != 0 else f"{filename}{duration_text}", 
                     color=color,
                     linestyle=line_style,
                     marker=marker,
@@ -595,6 +628,23 @@ class DentonGUI(tk.Tk):
             filename = os.path.basename(file_info['original_path'])
             if filename == selected:
                 self.selected_file_index = i
+                
+                # Calculate dynamic slider range based on file durations
+                current_file_duration = file_info.get('duration', 300.0)
+                
+                # Find the longest file duration
+                max_duration = 300.0  # Default fallback
+                for f_info, _, _ in self.current_file_data:
+                    if 'duration' in f_info and f_info['duration'] > max_duration:
+                        max_duration = f_info['duration']
+                
+                # Update slider range:
+                # Negative range = current file duration (to allow sliding back to start)
+                # Positive range = longest file duration (to allow aligning with end)
+                self.time_offset_slider.configure(
+                    from_=-current_file_duration,
+                    to=max_duration
+                )
                 
                 # Update slider to show current offset for this file
                 current_offset = self.file_offsets.get(file_info['original_path'], 0.0)
