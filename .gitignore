@@ -47,3 +47,6 @@ yarn-error.log*
 #testing stuff
 */tests/
 tests/*
+
+#auth stuff
+auth.py
