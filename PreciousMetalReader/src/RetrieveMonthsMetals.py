@@ -41,7 +41,6 @@ def download_Metal(endpoint, month, year):
     Returns:
         str: Path to the downloaded file or None if download failed
     """
-    url = BaseURL + endpoint
 
     startDay = 1
     endDay = daysinMonth(month, year)
@@ -49,7 +48,7 @@ def download_Metal(endpoint, month, year):
     try:
         header = {'Authorization': HSCCode}
 
-        constructedURL = f"{url}{endpoint}{StartDayAppend}{year}-{month:02d}-{startDay:02d}{EndDayAppend}{year}-{month:02d}-{endDay:02d}"
+        constructedURL = f"{BaseURL}{endpoint}{StartDayAppend}{year}-{month:02d}-{startDay:02d}{EndDayAppend}{year}-{month:02d}-{endDay:02d}"
         response = requests.get(constructedURL, headers=header)
 
         if response.status_code == 200:
@@ -60,7 +59,7 @@ def download_Metal(endpoint, month, year):
             metal = None
 
             # Determine machine first
-            if endpoint == "768":
+            if endpoint == 768:
                 machine = "Denton635"
                 metal = "gold"
             elif endpoint >= 808 and endpoint <= 810:
@@ -102,20 +101,26 @@ def download_Metal(endpoint, month, year):
 
 # Example usage for the specific endpoint "768"
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python RetrieveMonthsMetals.py <month> <year>")
-        print("Example: python RetrieveMonthsMetals.py 5 2025")
-        sys.exit(1)
+
+    endpoint = 768 
+    month = 4
+    year = 2025
+     
+    if len(sys.argv) != 4:
+        print("Usage: python RetrieveMonthsMetals.py <endpoint> <month> <year>")
+        print("Example: python RetrieveMonthsMetals.py 768 5 2025")
+        #sys.exit(1)
     
     try:
-        endpoint = int(sys.argv[1])
-        month = int(sys.argv[2])
-        year = int(sys.argv[3])
+        #endpoint = int(sys.argv[1])
+        #month = int(sys.argv[2])
+        #year = int(sys.argv[3])
         
         # Validate inputs
         if month < 1 or month > 12:
             raise ValueError("Month must be between 1 and 12")
         
+       
         downloaded_file = download_Metal(endpoint, month, year)
         if downloaded_file:
             print(f"File downloaded successfully: {downloaded_file}")
