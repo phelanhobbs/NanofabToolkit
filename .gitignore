@@ -50,3 +50,6 @@ tests/*
 
 #auth stuff
 auth.py
+
+#downloaded files
+*.csv
