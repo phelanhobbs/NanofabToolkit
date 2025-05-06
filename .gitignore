@@ -53,3 +53,4 @@ auth.py
 
 #downloaded files
 *.csv
+*.json
