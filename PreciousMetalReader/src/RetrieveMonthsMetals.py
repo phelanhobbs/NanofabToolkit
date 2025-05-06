@@ -33,13 +33,15 @@ def daysinMonth(months, yr):
 
 def download_Metal(endpoint, month, year):
     """
-    Download a file from the specified endpoint.
+    Download data from the specified endpoint and save as CSV.
     
     Args:
-        endpoint (str): The endpoint to append to the BaseURL
+        endpoint (int): The endpoint to append to the BaseURL
+        month (int): Month number (1-12)
+        year (int): Year (e.g., 2025)
         
     Returns:
-        str: Path to the downloaded file or None if download failed
+        str: Path to the saved file or None if download failed
     """
 
     startDay = 1
@@ -81,16 +83,31 @@ def download_Metal(endpoint, month, year):
                 elif endpoint == 814:
                     metal = "Platinum"
 
-            # Use endpoint as filename
-            filename = f"{machine}_{metal}_{month}_{year}.csv"
-            filepath = os.path.join('downloads', filename)
+            # Get JSON data
+            json_data = response.json()
             
-            # Save the file
-            with open(filepath, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+            # Base filename
+            base_filename = f"{machine}_{metal}_{month}_{year}"
             
-            return filepath
+            # Save as JSON (preserve original data)
+            json_filepath = os.path.join('downloads', f"{base_filename}.json")
+            with open(json_filepath, 'w') as f:
+                import json
+                json.dump(json_data, f, indent=2)
+            
+            # Convert to CSV
+            csv_filepath = os.path.join('downloads', f"{base_filename}.csv")
+            with open(csv_filepath, 'w', newline='') as f:
+                import csv
+                if json_data and len(json_data) > 0:
+                    # Get field names from the first record
+                    fieldnames = json_data[0].keys()
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for record in json_data:
+                        writer.writerow(record)
+            
+            return csv_filepath
         else:
             print(f"Download failed with status code: {response.status_code}")
             return None
@@ -101,10 +118,6 @@ def download_Metal(endpoint, month, year):
 
 # Example usage for the specific endpoint "768"
 if __name__ == "__main__":
-
-    endpoint = 768 
-    month = 4
-    year = 2025
      
     if len(sys.argv) != 4:
         print("Usage: python RetrieveMonthsMetals.py <endpoint> <month> <year>")
@@ -112,9 +125,9 @@ if __name__ == "__main__":
         #sys.exit(1)
     
     try:
-        #endpoint = int(sys.argv[1])
-        #month = int(sys.argv[2])
-        #year = int(sys.argv[3])
+        endpoint = int(sys.argv[1])
+        month = int(sys.argv[2])
+        year = int(sys.argv[3])
         
         # Validate inputs
         if month < 1 or month > 12:
