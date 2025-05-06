@@ -169,11 +169,24 @@ class PreciousMetalReaderGui:
                 
             self.status_text.set(f"Downloading data for {self.month_choice.get()} {year}...")
             
-            # This is where we would call the backend function
-            # For now, it's just a placeholder
             downloaded_file = download_Metal(int(endpoint), month, year)
             
-            self.status_text.set("Download requested - will be implemented in backend")
+            if downloaded_file:
+                self.status_text.set(f"Downloaded to: {downloaded_file}")
+                self.refresh_file_list()
+                # Select the newly downloaded file in the listbox
+                files = self.file_listbox.get(0, tk.END)
+                basename = os.path.basename(downloaded_file)
+                if basename in files:
+                    index = files.index(basename)
+                    self.file_listbox.selection_clear(0, tk.END)
+                    self.file_listbox.selection_set(index)
+                    self.file_listbox.see(index)
+                else:
+                    self.status_text.set(f"Warning: {basename} not found in listbox after download")
+            else:
+                self.status_text.set("Download failed or no data available.")
+            
         except Exception as e:
             self.status_text.set(f"Error: {str(e)}")
             messagebox.showerror("Error", str(e))
@@ -182,18 +195,27 @@ class PreciousMetalReaderGui:
         """Update the list of downloaded files"""
         try:
             self.file_listbox.delete(0, tk.END)
-            download_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'downloads')
+            # Fix the path to look in the root project directory's downloads folder
+            download_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'downloads')
             
             # Create directory if it doesn't exist
             if not os.path.exists(download_dir):
                 os.makedirs(download_dir, exist_ok=True)
-                
+                self.status_text.set(f"Created downloads directory: {download_dir}")
+            
             # List all CSV files in the downloads directory
             if os.path.exists(download_dir):
                 files = [f for f in os.listdir(download_dir) if f.endswith('.csv')]
-                for file in sorted(files):
-                    self.file_listbox.insert(tk.END, file)
+                if files:
+                    for file in sorted(files):
+                        self.file_listbox.insert(tk.END, file)
+                    self.status_text.set(f"Found {len(files)} CSV files in {download_dir}")
+                else:
+                    self.status_text.set(f"No CSV files found in {download_dir}")
+            else:
+                self.status_text.set(f"Downloads directory not found: {download_dir}")
         except Exception as e:
+            self.status_text.set(f"Error refreshing file list: {str(e)}")
             messagebox.showerror("Error", f"Failed to refresh file list: {str(e)}")
     
     def open_file(self):
@@ -205,13 +227,14 @@ class PreciousMetalReaderGui:
                 return
                 
             filename = self.file_listbox.get(selection[0])
-            filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'downloads', filename)
+            # Fix the path to look in the root project directory's downloads folder
+            filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'downloads', filename)
             
             if os.path.exists(filepath):
                 # Open the file with the default application
                 os.startfile(filepath)
             else:
-                messagebox.showerror("Error", "File not found")
+                messagebox.showerror("Error", f"File not found: {filepath}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open file: {str(e)}")
 
