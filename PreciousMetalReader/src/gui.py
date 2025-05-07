@@ -66,6 +66,10 @@ class PreciousMetalReaderGui:
         self.download_button = ttk.Button(main_frame, text="Download Data", command=self.download_data)
         self.download_button.grid(row=3, column=0, columnspan=2, pady=20)
         
+        # Add the "Download All" button below the "Download Data" button
+        self.download_all_button = ttk.Button(main_frame, text="Download All", command=self.download_all_data)
+        self.download_all_button.grid(row=3, column=1, columnspan=2, pady=20)
+
         # Status area
         ttk.Label(main_frame, text="Status:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.status_text = tk.StringVar(value="Ready")
@@ -170,6 +174,49 @@ class PreciousMetalReaderGui:
             self.status_text.set(f"Downloading data for {self.month_choice.get()} {year}...")
             
             downloaded_file = download_Metal(int(endpoint), month, year)
+            
+            if downloaded_file:
+                self.status_text.set(f"Downloaded to: {downloaded_file}")
+                self.refresh_file_list()
+                # Select the newly downloaded file in the listbox
+                files = self.file_listbox.get(0, tk.END)
+                basename = os.path.basename(downloaded_file)
+                if basename in files:
+                    index = files.index(basename)
+                    self.file_listbox.selection_clear(0, tk.END)
+                    self.file_listbox.selection_set(index)
+                    self.file_listbox.see(index)
+                else:
+                    self.status_text.set(f"Warning: {basename} not found in listbox after download")
+            else:
+                self.status_text.set("Download failed or no data available.")
+            
+        except Exception as e:
+            self.status_text.set(f"Error: {str(e)}")
+            messagebox.showerror("Error", str(e))
+    
+    def download_all_data(self):
+        """Download all data for the selected month and year"""
+        try:
+            # Get the month number from the month name
+            month = self.get_month_number()
+            if not month:
+                return
+            
+            # Get and validate the year
+            try:
+                year = int(self.year_choice.get())
+                if year < 1900 or year > 2100:  # Basic validation
+                    raise ValueError("Year must be between 1900 and 2100")
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
+                return
+                
+            self.status_text.set(f"Downloading all data for {self.month_choice.get()} {year}...")
+            
+            # Use the special endpoint string
+            endpoint = "768,808,809,810,811,812,813,814"
+            downloaded_file = download_Metal(endpoint, month, year)
             
             if downloaded_file:
                 self.status_text.set(f"Downloaded to: {downloaded_file}")
