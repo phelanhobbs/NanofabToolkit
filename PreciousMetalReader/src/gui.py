@@ -6,7 +6,7 @@ import sys
 from tkinter import messagebox
 import calendar
 from RetrieveMonthsMetals import download_Metal
-
+import logging
 
 class PreciousMetalReaderGui:
     def __init__(self, root):
@@ -203,8 +203,8 @@ class PreciousMetalReaderGui:
                 self.status_text.set("Download failed or no data available.")
             
         except Exception as e:
-            self.status_text.set(f"Error: {str(e)}")
-            messagebox.showerror("Error", str(e))
+            logging.exception("An error occurred")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
     
     def download_all_data(self):
         """Download all data for the selected month and year and combine into one CSV"""
@@ -251,8 +251,8 @@ class PreciousMetalReaderGui:
                 self.status_text.set("Download failed or no data available.")
                 
         except Exception as e:
-            self.status_text.set(f"Error during bulk download: {str(e)}")
-            messagebox.showerror("Error", str(e))
+            logging.exception("An error occurred")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
         
     def refresh_file_list(self):
         """Update the list of downloaded files"""
@@ -294,8 +294,8 @@ class PreciousMetalReaderGui:
             
             return files  # Return the list of files for debugging
         except Exception as e:
-            self.status_text.set(f"Error refreshing file list: {str(e)}")
-            messagebox.showerror("Error", f"Failed to refresh file list: {str(e)}")
+            logging.exception("An error occurred")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
             return []
     
     def open_file(self):
@@ -323,7 +323,8 @@ class PreciousMetalReaderGui:
             else:
                 messagebox.showerror("Error", f"File not found: {filepath}")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open file: {str(e)}")
+            logging.exception("An error occurred")
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
 # For testing the GUI independently
 if __name__ == "__main__":
