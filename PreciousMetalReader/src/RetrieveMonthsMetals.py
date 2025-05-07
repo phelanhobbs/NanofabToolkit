@@ -2,6 +2,8 @@ import sys
 from auth import HSCCode
 import requests
 import os
+import csv
+import pandas as pd
 
 BaseURL = 'https://n8n.cores.utah.edu/webhook/line_item_batch_pull?service_ids='
 StartDayAppend = '&start_date='
@@ -282,15 +284,196 @@ def download_Metal(endpoint, month, year):
             traceback.print_exc()
             return None
 
+def summarize_metal_charges(csv_filepath):
+    """
+    Summarizes how much of each material each user got charged.
+    
+    Args:
+        csv_filepath (str): Path to the CSV file to analyze
+    
+    Returns:
+        dict: Dictionary with user charges by material
+    """
+
+    
+    print(f"Generating summary from {csv_filepath}...")
+    
+    try:
+        # Use pandas for easier data manipulation
+        df = pd.read_csv(csv_filepath)
+        
+        # Check if required columns exist
+        required_columns = ['user_full_name', 'service_name', 'total_charged']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            print(f"Error: CSV is missing required columns: {', '.join(missing_columns)}")
+            return None
+        
+        # Create a summary dictionary
+        summary = {}
+        
+        # If the combined CSV has Metal column, use it directly
+        if 'Metal' in df.columns:
+            # Group by user and material
+            grouped = df.groupby(['user_full_name', 'Metal']).agg({
+                'total_charged': 'sum'
+            }).reset_index()
+            
+            for _, row in grouped.iterrows():
+                user = row['user_full_name']
+                material = row['Metal']
+                amount = row['total_charged']
+                
+                if user not in summary:
+                    summary[user] = {}
+                
+                summary[user][material] = amount
+        
+        # Otherwise extract material from service_name
+        else:
+            # Define materials to look for in service_name
+            materials = ['Gold', 'Platinum', 'Palladium', 'Iridium']
+            
+            # Iterate through rows to categorize by material
+            for _, row in df.iterrows():
+                user = row['user_full_name']
+                service = row['service_name']
+                amount = float(row['total_charged'])
+                
+                # Determine material from service_name
+                material = None
+                for mat in materials:
+                    if mat.lower() in service.lower():
+                        material = mat
+                        break
+                
+                if material is None:
+                    material = "Other"
+                
+                # Add to summary
+                if user not in summary:
+                    summary[user] = {}
+                
+                if material not in summary[user]:
+                    summary[user][material] = 0
+                
+                summary[user][material] += amount
+        
+        # Print summary report
+        print("\n==== User Charges Summary ====")
+        total_by_material = {}
+        
+        for user, materials in summary.items():
+            print(f"\nUser: {user}")
+            
+            for material, amount in materials.items():
+                print(f"  {material}: ${amount:.2f}")
+                
+                # Track totals by material
+                if material not in total_by_material:
+                    total_by_material[material] = 0
+                total_by_material[material] += amount
+        
+        # Print overall total by material
+        print("\n==== Total Charges by Material ====")
+        for material, total in total_by_material.items():
+            print(f"{material}: ${total:.2f}")
+        
+        return summary
+    
+    except Exception as e:
+        print(f"Error summarizing metal charges: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def save_summary_to_csv(summary, csv_filepath):
+    """
+    Save the summary data to a CSV file.
+    
+    Args:
+        summary (dict): Summary dictionary
+        csv_filepath (str): Original CSV filepath to derive output filename
+    
+    Returns:
+        str: Path to the saved summary file
+    """
+    import csv
+    import os
+    
+    # Generate output filename
+    base_path = os.path.splitext(csv_filepath)[0]
+    summary_filepath = f"{base_path}_summary.csv"
+    
+    try:
+        # Get all unique materials
+        all_materials = set()
+        for user_data in summary.values():
+            all_materials.update(user_data.keys())
+        
+        # Sort materials for consistent column order
+        materials = sorted(list(all_materials))
+        
+        # Write to CSV
+        with open(summary_filepath, 'w', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write header
+            header = ['User'] + materials + ['Total']
+            writer.writerow(header)
+            
+            # Write data for each user
+            for user, user_data in summary.items():
+                row = [user]
+                user_total = 0
+                
+                # Add amount for each material
+                for material in materials:
+                    amount = user_data.get(material, 0)
+                    row.append(f"${amount:.2f}")
+                    user_total += amount
+                
+                # Add total
+                row.append(f"${user_total:.2f}")
+                writer.writerow(row)
+            
+            # Add a row for totals
+            total_row = ['TOTAL']
+            grand_total = 0
+            
+            for material in materials:
+                material_total = sum(user_data.get(material, 0) for user_data in summary.values())
+                total_row.append(f"${material_total:.2f}")
+                grand_total += material_total
+            
+            total_row.append(f"${grand_total:.2f}")
+            writer.writerow(total_row)
+        
+        print(f"\nSummary saved to: {summary_filepath}")
+        return summary_filepath
+    
+    except Exception as e:
+        print(f"Error saving summary to CSV: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 if __name__ == "__main__":
      
     if len(sys.argv) != 4:
         print("Usage: python RetrieveMonthsMetals.py <endpoint> <month> <year>")
         print("Example: python RetrieveMonthsMetals.py 768 5 2025")
+        print("Use 'all' as endpoint to download all endpoints")
         #sys.exit(1)
     
     try:
-        endpoint = int(sys.argv[1])
+        # Handle 'all' as a special case
+        if sys.argv[1].lower() == 'all':
+            endpoint = 'all'
+        else:
+            endpoint = int(sys.argv[1])
+            
         month = int(sys.argv[2])
         year = int(sys.argv[3])
         
@@ -298,10 +481,15 @@ if __name__ == "__main__":
         if month < 1 or month > 12:
             raise ValueError("Month must be between 1 and 12")
         
-       
         downloaded_file = download_Metal(endpoint, month, year)
         if downloaded_file:
             print(f"File downloaded successfully: {downloaded_file}")
+            
+            # Generate summary of metal charges
+            summary = summarize_metal_charges(downloaded_file)
+            if summary:
+                # Save summary to CSV
+                save_summary_to_csv(summary, downloaded_file)
         else:
             print("File download failed.")
     

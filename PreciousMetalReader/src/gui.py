@@ -5,7 +5,7 @@ import os
 import sys
 from tkinter import messagebox
 import calendar
-from RetrieveMonthsMetals import download_Metal
+from RetrieveMonthsMetals import download_Metal, summarize_metal_charges, save_summary_to_csv
 import logging
 
 class PreciousMetalReaderGui:
@@ -178,9 +178,21 @@ class PreciousMetalReaderGui:
             downloaded_file = download_Metal(int(endpoint), month, year)
             
             if downloaded_file:
-                self.status_text.set(f"Downloaded to: {downloaded_file}")
+                # Generate summary after download
+                self.status_text.set(f"Generating summary from {downloaded_file}...")
+                summary = summarize_metal_charges(downloaded_file)
                 
-                # Get the list of files after refresh
+                if summary:
+                    # Save the summary to CSV
+                    summary_file = save_summary_to_csv(summary, downloaded_file)
+                    if summary_file:
+                        self.status_text.set(f"Downloaded to: {downloaded_file}\nSummary saved to: {os.path.basename(summary_file)}")
+                    else:
+                        self.status_text.set(f"Downloaded to: {downloaded_file}\nFailed to create summary file")
+                else:
+                    self.status_text.set(f"Downloaded to: {downloaded_file}\nNo summary data available")
+                
+                # Refresh file list to include the new summary file
                 files = self.refresh_file_list()
                 
                 # Get the basename of the downloaded file
@@ -230,7 +242,19 @@ class PreciousMetalReaderGui:
             downloaded_file = download_Metal("all", month, year)
             
             if downloaded_file:
-                self.status_text.set(f"All data downloaded to: {downloaded_file}")
+                # Generate summary after download
+                self.status_text.set(f"Generating summary from {downloaded_file}...")
+                summary = summarize_metal_charges(downloaded_file)
+                
+                if summary:
+                    # Save the summary to CSV
+                    summary_file = save_summary_to_csv(summary, downloaded_file)
+                    if summary_file:
+                        self.status_text.set(f"All data downloaded to: {downloaded_file}\nSummary saved to: {os.path.basename(summary_file)}")
+                    else:
+                        self.status_text.set(f"All data downloaded to: {downloaded_file}\nFailed to create summary file")
+                else:
+                    self.status_text.set(f"All data downloaded to: {downloaded_file}\nNo summary data available")
                 
                 # Refresh the file list
                 files = self.refresh_file_list()
@@ -279,20 +303,39 @@ class PreciousMetalReaderGui:
             
             # List all CSV files in the downloads directory
             files = []
+            summary_files = []
             if os.path.exists(download_dir):
-                files = [f for f in os.listdir(download_dir) if f.endswith('.csv')]
-                files.sort(key=lambda x: os.path.getmtime(os.path.join(download_dir, x)), reverse=True)
+                all_files = [f for f in os.listdir(download_dir) if f.endswith('.csv')]
+                all_files.sort(key=lambda x: os.path.getmtime(os.path.join(download_dir, x)), reverse=True)
                 
-                if files:
+                # Separate summary files and regular files
+                for file in all_files:
+                    if file.endswith('_summary.csv'):
+                        summary_files.append(file)
+                    else:
+                        files.append(file)
+                
+                # Add files to listbox with special formatting for summaries
+                if files or summary_files:
+                    # First add regular data files
                     for file in files:
                         self.file_listbox.insert(tk.END, file)
-                    self.status_text.set(f"Found {len(files)} CSV files")
+                    
+                    # Add a separator if we have both types
+                    if files and summary_files:
+                        self.file_listbox.insert(tk.END, "-" * 30)
+                    
+                    # Add summary files with prefix
+                    for file in summary_files:
+                        self.file_listbox.insert(tk.END, f"📊 {file}")
+                    
+                    self.status_text.set(f"Found {len(files)} data files and {len(summary_files)} summary files")
                 else:
                     self.status_text.set(f"No CSV files found in downloads directory")
             else:
                 self.status_text.set(f"Downloads directory not found: {download_dir}")
             
-            return files  # Return the list of files for debugging
+            return files + summary_files  # Return the list of all files
         except Exception as e:
             logging.exception("An error occurred")
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
@@ -307,6 +350,15 @@ class PreciousMetalReaderGui:
                 return
                 
             filename = self.file_listbox.get(selection[0])
+            
+            # Remove the summary emoji prefix if present
+            if filename.startswith("📊 "):
+                filename = filename[2:]
+            
+            # Skip separator lines
+            if filename.startswith("-"):
+                messagebox.showinfo("Information", "Please select a file, not a separator")
+                return
             
             # Use a more robust way to find the downloads folder
             if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
