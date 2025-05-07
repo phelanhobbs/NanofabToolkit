@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from datetime import datetime
 import os
+import sys
 from tkinter import messagebox
 import calendar
 from RetrieveMonthsMetals import download_Metal
@@ -144,7 +145,8 @@ class PreciousMetalReaderGui:
         month_name = self.month_choice.get()
         month_names = list(calendar.month_name)[1:]  # Skip the empty string at index 0
         try:
-            return month_names.index(month_name) + 1  # +1 because index starts at 0
+            month = month_names.index(month_name) + 1  # +1 because index starts at 0
+            return month
         except ValueError:
             messagebox.showerror("Error", f"Invalid month: {month_name}")
             return None
@@ -177,17 +179,26 @@ class PreciousMetalReaderGui:
             
             if downloaded_file:
                 self.status_text.set(f"Downloaded to: {downloaded_file}")
-                self.refresh_file_list()
-                # Select the newly downloaded file in the listbox
-                files = self.file_listbox.get(0, tk.END)
+                
+                # Get the list of files after refresh
+                files = self.refresh_file_list()
+                
+                # Get the basename of the downloaded file
                 basename = os.path.basename(downloaded_file)
-                if basename in files:
-                    index = files.index(basename)
-                    self.file_listbox.selection_clear(0, tk.END)
-                    self.file_listbox.selection_set(index)
-                    self.file_listbox.see(index)
+                
+                # Debug output
+                print(f"Looking for {basename} in file list...")
+                print(f"Available files: {files}")
+                
+                # Find and select the file in the listbox
+                for idx, filename in enumerate(files):
+                    if filename == basename:
+                        self.file_listbox.selection_clear(0, tk.END)
+                        self.file_listbox.selection_set(idx)
+                        self.file_listbox.see(idx)
+                        break
                 else:
-                    self.status_text.set(f"Warning: {basename} not found in listbox after download")
+                    self.status_text.set(f"Warning: {basename} not found in file list")
             else:
                 self.status_text.set("Download failed or no data available.")
             
@@ -196,7 +207,7 @@ class PreciousMetalReaderGui:
             messagebox.showerror("Error", str(e))
     
     def download_all_data(self):
-        """Download all data for the selected month and year"""
+        """Download all data for the selected month and year and combine into one CSV"""
         try:
             # Get the month number from the month name
             month = self.get_month_number()
@@ -211,39 +222,55 @@ class PreciousMetalReaderGui:
             except ValueError as e:
                 messagebox.showerror("Error", str(e))
                 return
-                
+            
             self.status_text.set(f"Downloading all data for {self.month_choice.get()} {year}...")
             
-            # Use the special endpoint string
-            endpoint = "768,808,809,810,811,812,813,814"
-            downloaded_file = download_Metal(endpoint, month, year)
+            # Use a special indicator to download all endpoints at once
+            # Pass "all" as the endpoint to indicate combined download
+            downloaded_file = download_Metal("all", month, year)
             
             if downloaded_file:
-                self.status_text.set(f"Downloaded to: {downloaded_file}")
-                self.refresh_file_list()
-                # Select the newly downloaded file in the listbox
-                files = self.file_listbox.get(0, tk.END)
+                self.status_text.set(f"All data downloaded to: {downloaded_file}")
+                
+                # Refresh the file list
+                files = self.refresh_file_list()
+                
+                # Get the basename of the downloaded file
                 basename = os.path.basename(downloaded_file)
-                if basename in files:
-                    index = files.index(basename)
-                    self.file_listbox.selection_clear(0, tk.END)
-                    self.file_listbox.selection_set(index)
-                    self.file_listbox.see(index)
+                
+                # Find and select the file in the listbox
+                for idx, filename in enumerate(files):
+                    if filename == basename:
+                        self.file_listbox.selection_clear(0, tk.END)
+                        self.file_listbox.selection_set(idx)
+                        self.file_listbox.see(idx)
+                        break
                 else:
-                    self.status_text.set(f"Warning: {basename} not found in listbox after download")
+                    self.status_text.set(f"Warning: {basename} not found in listbox")
             else:
                 self.status_text.set("Download failed or no data available.")
-            
+                
         except Exception as e:
-            self.status_text.set(f"Error: {str(e)}")
+            self.status_text.set(f"Error during bulk download: {str(e)}")
             messagebox.showerror("Error", str(e))
         
     def refresh_file_list(self):
         """Update the list of downloaded files"""
         try:
             self.file_listbox.delete(0, tk.END)
-            # Fix the path to look in the root project directory's downloads folder
-            download_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'downloads')
+            
+            # Determine downloads folder path
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                # Running as compiled executable
+                base_dir = os.path.dirname(sys.executable)
+                download_dir = os.path.join(base_dir, 'downloads')
+            else:
+                # Running in a normal Python environment
+                current_file = os.path.abspath(__file__)
+                src_dir = os.path.dirname(current_file)
+                precious_metal_dir = os.path.dirname(src_dir)
+                project_dir = os.path.dirname(precious_metal_dir)
+                download_dir = os.path.join(project_dir, 'downloads')
             
             # Create directory if it doesn't exist
             if not os.path.exists(download_dir):
@@ -251,19 +278,25 @@ class PreciousMetalReaderGui:
                 self.status_text.set(f"Created downloads directory: {download_dir}")
             
             # List all CSV files in the downloads directory
+            files = []
             if os.path.exists(download_dir):
                 files = [f for f in os.listdir(download_dir) if f.endswith('.csv')]
+                files.sort(key=lambda x: os.path.getmtime(os.path.join(download_dir, x)), reverse=True)
+                
                 if files:
-                    for file in sorted(files):
+                    for file in files:
                         self.file_listbox.insert(tk.END, file)
-                    self.status_text.set(f"Found {len(files)} CSV files in {download_dir}")
+                    self.status_text.set(f"Found {len(files)} CSV files")
                 else:
-                    self.status_text.set(f"No CSV files found in {download_dir}")
+                    self.status_text.set(f"No CSV files found in downloads directory")
             else:
                 self.status_text.set(f"Downloads directory not found: {download_dir}")
+            
+            return files  # Return the list of files for debugging
         except Exception as e:
             self.status_text.set(f"Error refreshing file list: {str(e)}")
             messagebox.showerror("Error", f"Failed to refresh file list: {str(e)}")
+            return []
     
     def open_file(self):
         """Open the selected file"""
@@ -274,8 +307,15 @@ class PreciousMetalReaderGui:
                 return
                 
             filename = self.file_listbox.get(selection[0])
-            # Fix the path to look in the root project directory's downloads folder
-            filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'downloads', filename)
+            
+            # Use a more robust way to find the downloads folder
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                # Running as compiled executable
+                base_dir = os.path.dirname(sys.executable)
+                filepath = os.path.join(base_dir, 'downloads', filename)
+            else:
+                # Running in a normal Python environment
+                filepath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'downloads', filename)
             
             if os.path.exists(filepath):
                 # Open the file with the default application
