@@ -36,7 +36,7 @@ def download_Metal(endpoint, month, year):
     Download data from the specified endpoint and save as CSV.
     
     Args:
-        endpoint (int): The endpoint to append to the BaseURL
+        endpoint (int or str): The endpoint to append to the BaseURL
         month (int): Month number (1-12)
         year (int): Year (e.g., 2025)
         
@@ -57,37 +57,45 @@ def download_Metal(endpoint, month, year):
             # Create directory if it doesn't exist
             os.makedirs('downloads', exist_ok=True)
 
-            machine = None
-            metal = None
+            # Determine base filename
+            # If endpoint is a string, all metals are downloaded
+            if isinstance(endpoint, str):
+                base_filename = f"all_{month}_{year}"
+            else:
 
-            # Determine machine first
-            if endpoint == 768:
-                machine = "Denton635"
-                metal = "gold"
-            elif endpoint >= 808 and endpoint <= 810:
-                machine = "Denton635"
-                if endpoint == 808:
-                    metal = "Iridium"
-                elif endpoint == 809:
-                    metal = "Palladium"
-                elif endpoint == 810:
-                    metal = "Platinum"
-            elif endpoint >= 811 and endpoint <= 814:
-                machine = "Denton18"
-                if endpoint == 811:
-                    metal = "Gold"
-                elif endpoint == 812:
-                    metal = "Iridium"
-                elif endpoint == 813:
-                    metal = "Palladium"
-                elif endpoint == 814:
-                    metal = "Platinum"
+                machine = None
+                metal = None
+
+                # Determine machine first
+                if endpoint == 768:
+                    machine = "Denton635"
+                    metal = "gold"
+                elif endpoint >= 808 and endpoint <= 810:
+                    machine = "Denton635"
+                    if endpoint == 808:
+                        metal = "Iridium"
+                    elif endpoint == 809:
+                        metal = "Palladium"
+                    elif endpoint == 810:
+                        metal = "Platinum"
+                elif endpoint >= 811 and endpoint <= 814:
+                    machine = "Denton18"
+                    if endpoint == 811:
+                        metal = "Gold"
+                    elif endpoint == 812:
+                        metal = "Iridium"
+                    elif endpoint == 813:
+                        metal = "Palladium"
+                    elif endpoint == 814:
+                        metal = "Platinum"
+
+                # Base filename
+                base_filename = f"{machine}_{metal}_{month}_{year}"
 
             # Get JSON data
             json_data = response.json()
             
-            # Base filename
-            base_filename = f"{machine}_{metal}_{month}_{year}"
+            
             
             # Save as JSON (preserve original data)
             json_filepath = os.path.join('downloads', f"{base_filename}.json")
@@ -116,7 +124,6 @@ def download_Metal(endpoint, month, year):
         print(f"Error downloading file: {e}")
         return None
 
-# Example usage for the specific endpoint "768"
 if __name__ == "__main__":
      
     if len(sys.argv) != 4:
