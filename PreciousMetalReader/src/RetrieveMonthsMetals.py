@@ -1,7 +1,11 @@
 import sys
-from auth import HSCCode, BaseURL, StartDayAppend, EndDayAppend
+from auth import HSCCode
 import requests
 import os
+
+BaseURL = 'https://n8n.cores.utah.edu/webhook/line_item_batch_pull?service_ids='
+StartDayAppend = '&start_date='
+EndDayAppend = '&end_date='
 
 def daysinMonth(months, yr):
     """
