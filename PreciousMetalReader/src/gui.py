@@ -68,7 +68,7 @@ class PreciousMetalReaderGui:
         self.machine_label.grid(row=2, column=0, sticky=tk.W, pady=5)
         self.machine_choice = tk.StringVar()
         self.machine_combo = ttk.Combobox(main_frame, textvariable=self.machine_choice, state="readonly")
-        self.machine_combo['values'] = ("Denton635", "Denton18")
+        self.machine_combo['values'] = ("Denton635", "Denton18", "TMV")
         self.machine_combo.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
         self.machine_combo.bind("<<ComboboxSelected>>", self.update_metal_options)
 
@@ -139,6 +139,8 @@ class PreciousMetalReaderGui:
             self.metal_combo['values'] = ("Gold", "Iridium", "Palladium", "Platinum")
         elif machine == "Denton18":
             self.metal_combo['values'] = ("Gold", "Iridium", "Palladium", "Platinum")
+        elif machine == "TMV":
+            self.metal_combo['values'] = ("Gold", "Iridium", "Palladium", "Platinum")
         
         # Select the first metal by default
         if self.metal_combo['values']:
@@ -167,6 +169,16 @@ class PreciousMetalReaderGui:
                 return "813"
             elif metal == "Platinum":
                 return "814"
+        elif machine == "TMV":
+            if metal == "Gold":
+                return "815"
+            elif metal == "Iridium":
+                return "816"
+            elif metal == "Palladium":
+                return "817"
+            elif metal == "Platinum":
+                return "818"
+            
         
         return None
     
