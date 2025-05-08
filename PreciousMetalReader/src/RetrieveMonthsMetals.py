@@ -74,7 +74,7 @@ def download_Metal(endpoint, month, year):
     # Special case for "all" - download all endpoints and combine results
     if endpoint == "all":
         # List of all endpoints to download
-        endpoints = [768, 808, 809, 810, 811, 812, 813, 814]
+        endpoints = [768, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818]
         all_data = []
         combined_metadata = {}
         
@@ -123,6 +123,16 @@ def download_Metal(endpoint, month, year):
                         elif ep == 813:
                             metal = "Palladium"
                         elif ep == 814:
+                            metal = "Platinum"
+                    elif ep >= 815 and ep <= 818:
+                        machine = "TMV"
+                        if ep == 815:
+                            metal = "Gold"
+                        elif ep == 816:
+                            metal = "Iridium"
+                        elif ep == 817:
+                            metal = "Palladium"
+                        elif ep == 818:
                             metal = "Platinum"
                     
                     # Add machine and metal fields to each record
@@ -238,6 +248,16 @@ def download_Metal(endpoint, month, year):
                     elif endpoint == 813:
                         metal = "Palladium"
                     elif endpoint == 814:
+                        metal = "Platinum"
+                elif endpoint >= 815 and endpoint <= 818:
+                    machine = "TMV"
+                    if endpoint == 815:
+                        metal = "Gold"
+                    elif endpoint == 816:
+                        metal = "Iridium"
+                    elif endpoint == 817:
+                        metal = "Palladium"
+                    elif endpoint == 818:
                         metal = "Platinum"
                 
                 # Base filename
