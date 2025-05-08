@@ -23,29 +23,14 @@ class PreciousMetalReaderGui:
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Configure grid for main frame
-        for i in range(8):  # Reduced by 1 since month and year are on the same line now
+        for i in range(9):  # Added one more row for the new option
             main_frame.rowconfigure(i, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=3)
 
-        #select machine
-        self.machine_label = ttk.Label(main_frame, text="Select Machine:")
-        self.machine_label.grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.machine_choice = tk.StringVar()
-        machine_combo = ttk.Combobox(main_frame, textvariable=self.machine_choice, state="readonly")
-        machine_combo['values'] = ("Denton635", "Denton18")
-        machine_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
-        machine_combo.bind("<<ComboboxSelected>>", self.update_metal_options)
-
-        #Metal selection
-        ttk.Label(main_frame, text="Select Metal:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.metal_choice = tk.StringVar()
-        self.metal_combo = ttk.Combobox(main_frame, textvariable=self.metal_choice, state="readonly")
-        self.metal_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
-        
-        # Date selection - Month and Year on the same line
+        # Date selection - Month and Year at the top
         date_frame = ttk.Frame(main_frame)
-        date_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        date_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
         
         # Month selection (using names instead of numbers)
         ttk.Label(date_frame, text="Select Date:").pack(side=tk.LEFT, padx=(0, 10))
@@ -63,44 +48,89 @@ class PreciousMetalReaderGui:
         year_entry = ttk.Entry(date_frame, textvariable=self.year_choice, width=6)
         year_entry.pack(side=tk.LEFT)
         
+        # Download option selection (specific tool/metal or all)
+        option_frame = ttk.Frame(main_frame)
+        option_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        self.download_option = tk.StringVar(value="specific")
+        specific_radio = ttk.Radiobutton(option_frame, text="Specific Tool/Metal", 
+                                        variable=self.download_option, value="specific",
+                                        command=self.toggle_selection_mode)
+        specific_radio.pack(side=tk.LEFT, padx=(0, 20))
+        
+        all_radio = ttk.Radiobutton(option_frame, text="All Tools/Metals", 
+                                   variable=self.download_option, value="all",
+                                   command=self.toggle_selection_mode)
+        all_radio.pack(side=tk.LEFT)
+
+        # Select machine
+        self.machine_label = ttk.Label(main_frame, text="Select Machine:")
+        self.machine_label.grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.machine_choice = tk.StringVar()
+        self.machine_combo = ttk.Combobox(main_frame, textvariable=self.machine_choice, state="readonly")
+        self.machine_combo['values'] = ("Denton635", "Denton18")
+        self.machine_combo.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.machine_combo.bind("<<ComboboxSelected>>", self.update_metal_options)
+
+        # Metal selection
+        ttk.Label(main_frame, text="Select Metal:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.metal_choice = tk.StringVar()
+        self.metal_combo = ttk.Combobox(main_frame, textvariable=self.metal_choice, state="readonly")
+        self.metal_combo.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        
         # Download button
         self.download_button = ttk.Button(main_frame, text="Download Data", command=self.download_data)
-        self.download_button.grid(row=3, column=0, columnspan=2, pady=20)
+        self.download_button.grid(row=4, column=0, pady=20)
         
-        # Add the "Download All" button below the "Download Data" button
+        # Add the "Download All" button next to the "Download Data" button
         self.download_all_button = ttk.Button(main_frame, text="Download All", command=self.download_all_data)
-        self.download_all_button.grid(row=3, column=1, columnspan=2, pady=20)
+        self.download_all_button.grid(row=4, column=1, pady=20)
 
         # Status area
-        ttk.Label(main_frame, text="Status:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Status:").grid(row=5, column=0, sticky=tk.W, pady=5)
         self.status_text = tk.StringVar(value="Ready")
         status_label = ttk.Label(main_frame, textvariable=self.status_text)
-        status_label.grid(row=4, column=1, sticky=tk.W, pady=5)
+        status_label.grid(row=5, column=1, sticky=tk.W, pady=5)
         
         # File list
-        ttk.Label(main_frame, text="Downloaded Files:").grid(row=5, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Downloaded Files:").grid(row=6, column=0, sticky=tk.W, pady=5)
         self.file_listbox = tk.Listbox(main_frame, width=50, height=10)
-        self.file_listbox.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        self.file_listbox.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         
         # Scrollbar for listbox
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.file_listbox.yview)
-        scrollbar.grid(row=6, column=2, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=7, column=2, sticky=(tk.N, tk.S))
         self.file_listbox.configure(yscrollcommand=scrollbar.set)
         
         # Open file button
         self.open_button = ttk.Button(main_frame, text="Open Selected File", command=self.open_file)
-        self.open_button.grid(row=7, column=0, columnspan=2, pady=10)
+        self.open_button.grid(row=8, column=0, columnspan=2, pady=10)
         
         # Set default values
-        machine_combo.set("Denton635")
+        self.machine_combo.set("Denton635")
         self.update_metal_options(None)  # Initialize metal options
         
         # Set current month as default
         current_month_name = calendar.month_name[datetime.now().month]
         month_combo.set(current_month_name)
         
+        # Initialize UI state based on download option
+        self.toggle_selection_mode()
+        
         # Refresh file list at startup
         self.refresh_file_list()
+
+    def toggle_selection_mode(self):
+        """Toggle between specific tool/metal mode and all mode"""
+        mode = self.download_option.get()
+        if mode == "specific":
+            # Enable machine and metal selection
+            self.machine_combo.config(state="readonly")
+            self.metal_combo.config(state="readonly")
+        else:  # mode == "all"
+            # Disable machine and metal selection
+            self.machine_combo.config(state="disabled")
+            self.metal_combo.config(state="disabled")
 
     def update_metal_options(self, event):
         """Update the metal options based on the selected machine"""
@@ -154,6 +184,11 @@ class PreciousMetalReaderGui:
     def download_data(self):
         """Download data based on user selection"""
         try:
+            # Check if we're in "all" mode
+            if self.download_option.get() == "all":
+                self.download_all_data()
+                return
+                
             endpoint = self.get_endpoint()
             if not endpoint:
                 messagebox.showerror("Error", "Invalid machine/metal combination")
