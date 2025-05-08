@@ -306,106 +306,177 @@ def download_Metal(endpoint, month, year):
             return None
 
 def summarize_metal_charges(csv_filepath):
-    """Simplified version using only the csv module"""
+    """Summarize metal charges by user, machine, and material"""
     import csv
     from collections import defaultdict
     
     summary = {}
     total_by_material = defaultdict(float)
+    total_by_machine_material = defaultdict(float)
+    
+    # Ensure all metals are included even with zero values
+    all_metals = ['Gold', 'Platinum', 'Palladium', 'Iridium']
+    machines = ['Denton18', 'Denton635', 'TMV']
+    
+    # Initialize total_by_material with all metals
+    for metal in all_metals:
+        total_by_material[metal] = 0.0
+        # Initialize all machine-metal combinations
+        for machine in machines:
+            total_by_machine_material[f"{machine} {metal}"] = 0.0
     
     with open(csv_filepath, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
             user = row['user_full_name']
-            service = row['service_name']
             amount = float(row['total_charged'])
             
-            # Determine material from service_name
-            material = "Other"
-            for mat in ['Gold', 'Platinum', 'Palladium', 'Iridium']:
-                if mat.lower() in service.lower():
-                    material = mat
-                    break
+            # Get machine and metal directly from CSV if available
+            machine = row.get('Machine', 'Unknown')
+            metal = row.get('Metal', 'Other')
             
-            # Add to summary
+            # If metal not available in CSV, try to determine from service name
+            if metal == 'Other' and 'service_name' in row:
+                service = row['service_name']
+                for mat in all_metals:
+                    if mat.lower() in service.lower():
+                        metal = mat
+                        break
+            
+            # Initialize user in summary if not present
             if user not in summary:
-                summary[user] = {}
-            if material not in summary[user]:
-                summary[user][material] = 0
-            summary[user][material] += amount
-            total_by_material[material] += amount
+                summary[user] = {
+                    'machine_materials': defaultdict(float),  # For specific machine+material combinations
+                    'materials': defaultdict(float),          # For material totals
+                    'total': 0.0
+                }
+                
+                # Initialize all metal types and machine-metal combinations for this user
+                for m in all_metals:
+                    summary[user]['materials'][m] = 0.0
+                    for mac in machines:
+                        summary[user]['machine_materials'][f"{mac} {m}"] = 0.0
+            
+            # Create machine-material key (e.g., "Denton18 Gold")
+            machine_material_key = f"{machine} {metal}"
+            
+            # Update summaries
+            summary[user]['machine_materials'][machine_material_key] += amount
+            summary[user]['materials'][metal] += amount
+            summary[user]['total'] += amount
+            
+            # Track overall totals
+            total_by_material[metal] += amount
+            total_by_machine_material[machine_material_key] += amount
     
-    # Print output as before
     print("\n==== User Charges Summary ====")
-    # ...rest of your output code...
     
-    return summary
+    return summary, total_by_material, total_by_machine_material
 
-def save_summary_to_csv(summary, csv_filepath):
+def save_summary_to_csv(summary_data, csv_filepath):
     """
-    Save the summary data to a CSV file.
+    Save the detailed summary data to a CSV file with machine-specific breakdown.
     
     Args:
-        summary (dict): Summary dictionary
+        summary_data (tuple): Tuple containing (summary, total_by_material, total_by_machine_material)
         csv_filepath (str): Original CSV filepath to derive output filename
     
     Returns:
         str: Path to the saved summary file
     """
+    summary, total_by_material, total_by_machine_material = summary_data
     
     # Generate output filename
     base_path = os.path.splitext(csv_filepath)[0]
-    summary_filepath = f"{base_path}_summary.csv"
+    summary_filepath = f"{base_path}_detailed_summary.csv"
     
     try:
-        # Get all unique materials
-        all_materials = set()
-        for user_data in summary.values():
-            all_materials.update(user_data.keys())
+        # Always include these metals in this specific order
+        required_metals = ['Gold', 'Iridium', 'Palladium', 'Platinum']
         
-        # Sort materials for consistent column order
-        materials = sorted(list(all_materials))
+        # Get all other materials (excluding required ones and "Other")
+        other_materials = sorted([m for m in total_by_material.keys() 
+                                if m != 'Other' and m not in required_metals])
         
+        # Create our ordered materials list
+        materials = required_metals + other_materials
+        
+        # Add "Other" at the end if it exists
+        if 'Other' in total_by_material:
+            materials.append('Other')
+        
+        # Define machines for consistent order
+        machines = ['Denton18', 'Denton635', 'TMV']
+        
+        # Create header structure
+        header = ['User']
+        
+        # For each material, add columns for each machine and a total
+        for material in materials:
+            for machine in machines:
+                header.append(f"{machine} {material}")
+            header.append(f"Total {material}")
+        
+        # Add overall total column
+        header.append('Overall Total')
+            
         # Write to CSV
         with open(summary_filepath, 'w', newline='') as f:
             writer = csv.writer(f)
             
             # Write header
-            header = ['User'] + materials + ['Total']
             writer.writerow(header)
             
             # Write data for each user
             for user, user_data in summary.items():
                 row = [user]
-                user_total = 0
                 
-                # Add amount for each material
+                # For each material
                 for material in materials:
-                    amount = user_data.get(material, 0)
-                    row.append(f"${amount:.2f}")
-                    user_total += amount
+                    material_total = 0
+                    
+                    # Add amount for each machine
+                    for machine in machines:
+                        machine_material_key = f"{machine} {material}"
+                        amount = user_data['machine_materials'].get(machine_material_key, 0)
+                        row.append(f"${amount:.2f}")
+                        material_total += amount
+                    
+                    # Add material total
+                    row.append(f"${material_total:.2f}")
                 
-                # Add total
-                row.append(f"${user_total:.2f}")
+                # Add overall total for this user
+                row.append(f"${user_data['total']:.2f}")
                 writer.writerow(row)
             
             # Add a row for totals
             total_row = ['TOTAL']
             grand_total = 0
             
+            # For each material
             for material in materials:
-                material_total = sum(user_data.get(material, 0) for user_data in summary.values())
-                total_row.append(f"${material_total:.2f}")
-                grand_total += material_total
+                material_grand_total = 0
+                
+                # Add total for each machine+material combination
+                for machine in machines:
+                    machine_material_key = f"{machine} {material}"
+                    machine_material_total = total_by_machine_material.get(machine_material_key, 0)
+                    total_row.append(f"${machine_material_total:.2f}")
+                    material_grand_total += machine_material_total
+                
+                # Add material total
+                total_row.append(f"${material_grand_total:.2f}")
+                grand_total += material_grand_total
             
+            # Add grand total
             total_row.append(f"${grand_total:.2f}")
             writer.writerow(total_row)
         
-        print(f"\nSummary saved to: {summary_filepath}")
+        print(f"\nDetailed summary saved to: {summary_filepath}")
         return summary_filepath
     
     except Exception as e:
-        print(f"Error saving summary to CSV: {e}")
+        print(f"Error saving detailed summary to CSV: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -437,10 +508,10 @@ if __name__ == "__main__":
             print(f"File downloaded successfully: {downloaded_file}")
             
             # Generate summary of metal charges
-            summary = summarize_metal_charges(downloaded_file)
-            if summary:
+            summary_data = summarize_metal_charges(downloaded_file)
+            if summary_data:
                 # Save summary to CSV
-                save_summary_to_csv(summary, downloaded_file)
+                save_summary_to_csv(summary_data, downloaded_file)
         else:
             print("File download failed.")
     
