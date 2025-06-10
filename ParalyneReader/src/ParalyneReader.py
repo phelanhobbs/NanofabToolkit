@@ -29,6 +29,7 @@ def download_file(filename):
     else:
         raise Exception(f"Error downloading file '{filename}': {response.status_code} - {response.text}")
     
+
 def return_selected(filename):
     """Return the selected file information."""
     response = requests.get(f"{base_url}/return/{filename}", verify=False)
@@ -36,6 +37,7 @@ def return_selected(filename):
         return response.json()
     else:
         raise Exception(f"Error fetching file info for '{filename}': {response.status_code} - {response.text}")
+    
 ###
 # 
 # for testing purposes, you can uncomment the following lines to run the script directly 
