@@ -27,13 +27,14 @@ def download_file(filename):
         print(f"File '{filename}' downloaded successfully.")
     else:
         raise Exception(f"Error downloading file '{filename}': {response.status_code} - {response.text}")
-    
-list_files()
-input_filename = input("Enter the filename to download: ")
-if input_filename:
-    try:
-        download_file(input_filename)
-    except Exception as e:
-        print(e)
-
+###
+# 
+# for testing purposes, you can uncomment the following lines to run the script directly 
+#list_files()
+#input_filename = input("Enter the filename to download: ")
+#if input_filename:
+#    try:
+#        download_file(input_filename)
+#    except Exception as e:
+#        print(e)
 
