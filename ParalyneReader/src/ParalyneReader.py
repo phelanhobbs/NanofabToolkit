@@ -13,7 +13,7 @@ def list_files():
     if response.status_code == 200:
         resp = response.json()
         print("Available files:")
-        for file_info in resp:
+        for file_info in resp['files']:
             print(f"- {file_info['filename']} (Size: {file_info['size']} bytes, Modified: {file_info['modified']})")
     else:
         raise Exception(f"Error fetching file list: {response.status_code} - {response.text}")
@@ -27,5 +27,13 @@ def download_file(filename):
         print(f"File '{filename}' downloaded successfully.")
     else:
         raise Exception(f"Error downloading file '{filename}': {response.status_code} - {response.text}")
+    
+list_files()
+input_filename = input("Enter the filename to download: ")
+if input_filename:
+    try:
+        download_file(input_filename)
+    except Exception as e:
+        print(e)
 
 
