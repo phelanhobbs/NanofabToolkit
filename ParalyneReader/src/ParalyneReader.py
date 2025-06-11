@@ -1,5 +1,6 @@
 import requests
 import json
+import os
 
 # Disable SSL warnings for self-signed certificates
 requests.packages.urllib3.disable_warnings()
@@ -23,9 +24,15 @@ def download_file(filename):
     """Download a specific file from the Paralyne analog data directory."""
     response = requests.get(f"{base_url}/download/{filename}", verify=False)
     if response.status_code == 200:
-        with open(filename, 'wb') as file:
+        # Get the absolute path where the file will be saved
+        file_path = os.path.abspath(filename)
+        
+        with open(file_path, 'wb') as file:
             file.write(response.content)
         print(f"File '{filename}' downloaded successfully.")
+        
+        # Return the full path to the downloaded file
+        return file_path
     else:
         raise Exception(f"Error downloading file '{filename}': {response.status_code} - {response.text}")
     
