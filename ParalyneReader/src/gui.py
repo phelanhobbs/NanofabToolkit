@@ -12,6 +12,8 @@ import random
 import colorsys
 import numpy as np
 from scipy import stats
+from scipy.signal import savgol_filter, medfilt
+from scipy.ndimage import gaussian_filter1d
 from ParalyneReader import list_files, download_file, return_selected
 import logging
 
@@ -181,7 +183,7 @@ class ParalyneReaderApp:
         parent.add(graph_frame, weight=2)
         
         graph_frame.columnconfigure(0, weight=1)
-        graph_frame.rowconfigure(2, weight=1)
+        graph_frame.rowconfigure(3, weight=1)
 
         # Graph options frame
         options_frame = ttk.LabelFrame(graph_frame, text="Graph Options")
@@ -213,13 +215,53 @@ class ParalyneReaderApp:
         ttk.Checkbutton(options_row2, text="Auto-zoom", 
                        variable=self.auto_zoom_var).pack(side=tk.LEFT, padx=(0, 10))
 
+        # Show normalized data option
+        self.show_normalized_var = tk.BooleanVar(value=False)
+        normalized_check = ttk.Checkbutton(options_row2, text="Show normalized", 
+                       variable=self.show_normalized_var, command=self.on_normalization_change)
+        normalized_check.pack(side=tk.LEFT, padx=(0, 10))
+
         # Graph button
         ttk.Button(options_row2, text="Generate Graph", 
                   command=self.generate_graph).pack(side=tk.RIGHT)
 
+        # Normalization options frame
+        norm_frame = ttk.LabelFrame(graph_frame, text="Noise Reduction & Normalization")
+        norm_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        
+        norm_inner = ttk.Frame(norm_frame)
+        norm_inner.pack(fill=tk.X, padx=10, pady=5)
+        norm_inner.columnconfigure(1, weight=1)
+
+        # Smoothing method selection
+        ttk.Label(norm_inner, text="Smoothing:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+        self.smoothing_var = tk.StringVar(value="none")
+        smoothing_combo = ttk.Combobox(norm_inner, textvariable=self.smoothing_var, 
+                                      values=["none", "moving_average", "savgol", "gaussian", "median"], 
+                                      width=15, state="readonly")
+        smoothing_combo.grid(row=0, column=1, sticky="w", padx=(0, 10))
+        smoothing_combo.bind("<<ComboboxSelected>>", self.on_processing_change)
+
+        # Window size for smoothing
+        ttk.Label(norm_inner, text="Window:").grid(row=0, column=2, sticky="w", padx=(10, 5))
+        self.window_size_var = tk.IntVar(value=11)
+        window_spin = ttk.Spinbox(norm_inner, from_=3, to=101, increment=2, 
+                                 textvariable=self.window_size_var, width=8, 
+                                 command=self.on_processing_change)
+        window_spin.grid(row=0, column=3, sticky="w", padx=(0, 10))
+
+        # Normalization method
+        ttk.Label(norm_inner, text="Normalize:").grid(row=1, column=0, sticky="w", padx=(0, 5), pady=(5, 0))
+        self.normalize_var = tk.StringVar(value="none")
+        normalize_combo = ttk.Combobox(norm_inner, textvariable=self.normalize_var, 
+                                      values=["none", "minmax", "zscore", "robust"], 
+                                      width=15, state="readonly")
+        normalize_combo.grid(row=1, column=1, sticky="w", padx=(0, 10), pady=(5, 0))
+        normalize_combo.bind("<<ComboboxSelected>>", self.on_processing_change)
+
         # Time offset controls
         time_offset_frame = ttk.LabelFrame(graph_frame, text="Time Alignment")
-        time_offset_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        time_offset_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
         time_offset_frame.columnconfigure(1, weight=1)
 
         # File selector for time offset
@@ -272,7 +314,7 @@ class ParalyneReaderApp:
 
         # Graph display frame
         display_frame = ttk.LabelFrame(graph_frame, text="Graph")
-        display_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        display_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # Create matplotlib figure
         self.figure = plt.Figure(figsize=(8, 6))
@@ -493,6 +535,132 @@ class ParalyneReaderApp:
         self.ax.clear()
         self.canvas.draw()
 
+    def apply_smoothing(self, values, method, window_size):
+        """Apply smoothing to data values"""
+        if method == "none" or len(values) < 3:
+            return values
+        
+        values_array = np.array(values)
+        
+        try:
+            if method == "moving_average":
+                # Simple moving average
+                window = min(window_size, len(values))
+                if window % 2 == 0:
+                    window += 1  # Ensure odd window size
+                
+                # Pad the array to handle edges
+                pad_width = window // 2
+                padded = np.pad(values_array, pad_width, mode='edge')
+                
+                # Apply convolution
+                kernel = np.ones(window) / window
+                smoothed = np.convolve(padded, kernel, mode='valid')
+                return smoothed.tolist()
+                
+            elif method == "savgol":
+                # Savitzky-Golay filter
+                window = min(window_size, len(values))
+                if window % 2 == 0:
+                    window += 1  # Ensure odd window size
+                if window < 3:
+                    window = 3
+                
+                poly_order = min(3, window - 1)
+                smoothed = savgol_filter(values_array, window, poly_order)
+                return smoothed.tolist()
+                
+            elif method == "gaussian":
+                # Gaussian filter
+                sigma = window_size / 6.0  # Convert window size to sigma
+                smoothed = gaussian_filter1d(values_array, sigma)
+                return smoothed.tolist()
+                
+            elif method == "median":
+                # Median filter
+                window = min(window_size, len(values))
+                if window % 2 == 0:
+                    window += 1  # Ensure odd window size
+                
+                smoothed = medfilt(values_array, kernel_size=window)
+                return smoothed.tolist()
+                
+        except Exception as e:
+            logging.warning(f"Error applying smoothing method {method}: {str(e)}")
+            return values
+        
+        return values
+
+    def apply_normalization(self, values, method):
+        """Apply normalization to data values"""
+        if method == "none" or len(values) == 0:
+            return values
+        
+        values_array = np.array(values)
+        
+        try:
+            if method == "minmax":
+                # Min-max normalization (0 to 1)
+                min_val = np.min(values_array)
+                max_val = np.max(values_array)
+                if max_val != min_val:
+                    normalized = (values_array - min_val) / (max_val - min_val)
+                else:
+                    normalized = np.zeros_like(values_array)
+                return normalized.tolist()
+                
+            elif method == "zscore":
+                # Z-score normalization (mean=0, std=1)
+                mean_val = np.mean(values_array)
+                std_val = np.std(values_array)
+                if std_val != 0:
+                    normalized = (values_array - mean_val) / std_val
+                else:
+                    normalized = np.zeros_like(values_array)
+                return normalized.tolist()
+                
+            elif method == "robust":
+                # Robust normalization using median and IQR
+                median_val = np.median(values_array)
+                q75, q25 = np.percentile(values_array, [75, 25])
+                iqr = q75 - q25
+                if iqr != 0:
+                    normalized = (values_array - median_val) / iqr
+                else:
+                    normalized = np.zeros_like(values_array)
+                return normalized.tolist()
+                
+        except Exception as e:
+            logging.warning(f"Error applying normalization method {method}: {str(e)}")
+            return values
+        
+        return values
+
+    def process_data(self, values):
+        """Apply smoothing and normalization to data"""
+        # First apply smoothing
+        smoothing_method = self.smoothing_var.get()
+        window_size = self.window_size_var.get()
+        processed_values = self.apply_smoothing(values, smoothing_method, window_size)
+        
+        # Then apply normalization
+        normalize_method = self.normalize_var.get()
+        processed_values = self.apply_normalization(processed_values, normalize_method)
+        
+        return processed_values
+
+    def on_normalization_change(self):
+        """Called when the normalization checkbox is toggled"""
+        # Regenerate the graph if we have data
+        if self.current_file_data:
+            self.generate_graph()
+
+    def on_processing_change(self, event=None):
+        """Called when smoothing or normalization settings change"""
+        # Only regenerate if normalization is enabled and we have data
+        if self.show_normalized_var.get() and self.current_file_data:
+            self.generate_graph()
+
     def generate_graph(self):
         """Generate and display graphs for selected files"""
         # Check if any files are ready
@@ -631,27 +799,56 @@ class ParalyneReaderApp:
                 if not times or not values:
                     continue
                 
+                # Process values if normalization is enabled
+                plot_values = values
+                if self.show_normalized_var.get():
+                    plot_values = self.process_data(values)
+                
                 color = self.color_cycle[i % len(self.color_cycle)]
                 style = line_styles[i % len(line_styles)]
                 marker = markers[i % len(markers)]
                 
+                # Create label with processing info
                 label = os.path.basename(file_info['filename'])
+                if self.show_normalized_var.get():
+                    processing_info = []
+                    if self.smoothing_var.get() != "none":
+                        processing_info.append(f"S:{self.smoothing_var.get()}")
+                    if self.normalize_var.get() != "none":
+                        processing_info.append(f"N:{self.normalize_var.get()}")
+                    if processing_info:
+                        label += f" [{', '.join(processing_info)}]"
                 
                 # Plot with style variations
-                if len(values) > 1000:  # Don't use markers for large datasets
-                    self.ax.plot(times, values, color=color, linestyle=style, 
+                if len(plot_values) > 1000:  # Don't use markers for large datasets
+                    self.ax.plot(times, plot_values, color=color, linestyle=style, 
                                label=label, linewidth=1.5)
                 else:
-                    self.ax.plot(times, values, color=color, linestyle=style, 
+                    self.ax.plot(times, plot_values, color=color, linestyle=style, 
                                marker=marker, markersize=4, label=label, 
-                               linewidth=1.5, markevery=max(1, len(values)//20))
+                               linewidth=1.5, markevery=max(1, len(plot_values)//20))
             
             # Set labels and title with better defaults
             self.ax.set_xlabel("Timestamp")
             
-            # Set y-axis label based on column name
+            # Set y-axis label based on column name and processing
             y_label = column
-            if 'pressure' in column.lower():
+            if self.show_normalized_var.get():
+                # Add processing information to y-label
+                processing_parts = []
+                if self.smoothing_var.get() != "none":
+                    processing_parts.append(f"Smoothed ({self.smoothing_var.get()})")
+                if self.normalize_var.get() != "none":
+                    norm_labels = {
+                        "minmax": "Min-Max Normalized",
+                        "zscore": "Z-Score Normalized", 
+                        "robust": "Robust Normalized"
+                    }
+                    processing_parts.append(norm_labels.get(self.normalize_var.get(), "Normalized"))
+                
+                if processing_parts:
+                    y_label = f"{column} ({', '.join(processing_parts)})"
+            elif 'pressure' in column.lower():
                 # Try to determine pressure units
                 if any(unit in column.lower() for unit in ['torr', 'mbar', 'pa', 'psi']):
                     y_label = column
@@ -659,7 +856,12 @@ class ParalyneReaderApp:
                     y_label = f"{column} (Pressure)"
             
             self.ax.set_ylabel(y_label)
-            self.ax.set_title(f"{column} vs Time")
+            
+            # Set title with processing information
+            title = f"{column} vs Time"
+            if self.show_normalized_var.get():
+                title += " (Processed)"
+            self.ax.set_title(title)
             self.ax.legend()
             self.ax.grid(True, alpha=0.3)
             
