@@ -734,12 +734,15 @@ class ParalyneReaderApp:
                         break
                 
                 for row in reader:
-                    if len(row) > max(column_index, time_column_index):
+                    if len(row) > max(column_index, time_column_index):                        
                         try:
                             # Parse time from the determined time column
                             if len(row[time_column_index]) > 0:
                                 time_val = self.parse_time(row[time_column_index])
                                 value = float(row[column_index])
+                                
+                                # Convert pico value to machine value
+                                converted_value = self.convert_pico_to_machine_value(value)
                                 
                                 # Apply time offset
                                 offset = self.file_offsets.get(file_info['filename'], 0.0)
@@ -749,13 +752,17 @@ class ParalyneReaderApp:
                                     time_val += offset
                                 
                                 times.append(time_val)
-                                values.append(value)
+                                values.append(converted_value)
                         except (ValueError, TypeError):
                             continue
         except Exception as e:
             logging.error(f"Error loading file {file_info['filename']}: {str(e)}")
         
-        return times, values
+        return times, values      
+    def convert_pico_to_machine_value(self, pico_value):
+        """Convert pico reading (a) to machine value (b) using: a = 174.96 * b + 1202.88"""
+        # Rearranging: b = (a - 1202.88) / 174.96
+        return (pico_value - 1202.88) / 174.96
 
     def parse_time(self, time_str):
         """Parse time string into datetime or float"""
@@ -830,8 +837,7 @@ class ParalyneReaderApp:
             
             # Set labels and title with better defaults
             self.ax.set_xlabel("Timestamp")
-            
-            # Set y-axis label based on column name and processing
+              # Set y-axis label based on column name and processing
             y_label = column
             if self.show_normalized_var.get():
                 # Add processing information to y-label
@@ -847,13 +853,15 @@ class ParalyneReaderApp:
                     processing_parts.append(norm_labels.get(self.normalize_var.get(), "Normalized"))
                 
                 if processing_parts:
-                    y_label = f"{column} ({', '.join(processing_parts)})"
+                    y_label = f"{column} ({', '.join(processing_parts)}) - Machine Values"
             elif 'pressure' in column.lower():
                 # Try to determine pressure units
                 if any(unit in column.lower() for unit in ['torr', 'mbar', 'pa', 'psi']):
-                    y_label = column
+                    y_label = f"{column} - Machine Values"
                 else:
-                    y_label = f"{column} (Pressure)"
+                    y_label = f"{column} (Pressure) - Machine Values"
+            else:
+                y_label = f"{column} - Machine Values"
             
             self.ax.set_ylabel(y_label)
             
