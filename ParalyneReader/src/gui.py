@@ -16,6 +16,9 @@ from scipy.signal import savgol_filter, medfilt
 from scipy.ndimage import gaussian_filter1d
 from ParalyneReader import list_files, download_file, return_selected
 import logging
+from concurrent.futures import ThreadPoolExecutor
+import queue
+import time
 
 class ParalyneReaderApp:
     def __init__(self, root):
@@ -25,9 +28,7 @@ class ParalyneReaderApp:
         self.root.resizable(True, True)
 
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-
-        # Store downloaded files for graphing
+        self.root.rowconfigure(0, weight=1)        # Store downloaded files for graphing
         self.downloaded_files = []
         self.columns = []
         
@@ -44,6 +45,17 @@ class ParalyneReaderApp:
         self.current_file_data = []
         self.current_column = ""
         self.current_log_scale = False
+
+        # Performance optimization: Add data caching and threading
+        self.raw_data_cache = {}  # Cache raw file data
+        self.processed_data_cache = {}  # Cache processed data
+        self.loading_threads = {}  # Track active loading threads
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+        self.load_queue = queue.Queue()
+        
+        # Performance settings
+        self.max_plot_points = 2000  # Downsample for plotting
+        self.chunk_size = 10000  # Process files in chunks
 
         # Create main frame
         main_frame = ttk.Frame(root, padding="10")
@@ -310,11 +322,23 @@ class ParalyneReaderApp:
         ttk.Button(reset_frame, text="Reset Offset", 
                   command=self.reset_time_offset).pack(side=tk.LEFT, padx=5)
         ttk.Button(reset_frame, text="Reset All Files", 
-                  command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)
-
-        # Graph display frame
+                  command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)        # Graph display frame
         display_frame = ttk.LabelFrame(graph_frame, text="Graph")
         display_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Progress bar for file loading
+        self.progress_frame = ttk.Frame(display_frame)
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(
+            self.progress_frame, 
+            variable=self.progress_var, 
+            maximum=100,
+            mode='determinate'
+        )
+        self.progress_label = ttk.Label(self.progress_frame, text="")
+        
+        # Initially hide progress bar
+        self.progress_frame.pack_forget()
 
         # Create matplotlib figure
         self.figure = plt.Figure(figsize=(8, 6))
@@ -659,10 +683,9 @@ class ParalyneReaderApp:
         """Called when smoothing or normalization settings change"""
         # Only regenerate if normalization is enabled and we have data
         if self.show_normalized_var.get() and self.current_file_data:
-            self.generate_graph()
-
+            self.generate_graph()    
     def generate_graph(self):
-        """Generate and display graphs for selected files"""
+        """Generate and display graphs for selected files (optimized with threading)"""
         # Check if any files are ready
         ready_files = [f for f in self.downloaded_files if f['columns']]
         
@@ -679,6 +702,13 @@ class ParalyneReaderApp:
         
         # Clear previous graph
         self.ax.clear()
+        self.canvas.draw()
+        
+        # Show progress for large files
+        total_size = sum(os.path.getsize(f['path']) for f in ready_files if os.path.exists(f['path']))
+        if total_size > 5 * 1024 * 1024:  # 5MB threshold
+            self.show_progress("Loading files...")
+        
         self.status_label.config(text=f"Generating graphs for {column}...", foreground="blue")
         self.root.update()
         
@@ -686,23 +716,67 @@ class ParalyneReaderApp:
         self.current_column = column
         self.current_log_scale = log_scale
         
-        # Process each file and plot
+        # Use threading for large files
+        if total_size > 5 * 1024 * 1024:
+            self.generate_graph_threaded(ready_files, column, log_scale)
+        else:
+            self.generate_graph_sync(ready_files, column, log_scale)
+
+    def generate_graph_sync(self, ready_files, column, log_scale):
+        """Generate graph synchronously for smaller files"""
         file_data = []
         
         for i, file_info in enumerate(ready_files):
             try:
-                times, values = self.load_file_data(file_info, column)
-                if times and values:
+                # Load raw data (without time offset)
+                raw_times, values = self.load_file_data(file_info, column)
+                if raw_times and values:
+                    # Apply time offset separately
+                    times = self.apply_time_offset_to_data(raw_times, file_info)
                     file_data.append((file_info, times, values))
             except Exception as e:
                 logging.error(f"Error processing file {file_info['filename']}: {str(e)}")
                 continue
         
+        self.finish_graph_generation(file_data, column, log_scale)
+
+    def generate_graph_threaded(self, ready_files, column, log_scale):
+        """Generate graph using threading for large files"""
+        def load_files_worker():
+            file_data = []
+            total_files = len(ready_files)
+            
+            for i, file_info in enumerate(ready_files):
+                try:
+                    self.root.after(0, lambda i=i, total=total_files: self.update_progress(
+                        (i / total) * 100, f"Loading file {i+1}/{total}: {file_info['filename']}"
+                    ))
+                      # Load raw data (without time offset)
+                    raw_times, values = self.load_file_data(file_info, column)
+                    if raw_times and values:
+                        # Apply time offset separately
+                        times = self.apply_time_offset_to_data(raw_times, file_info)
+                        file_data.append((file_info, times, values))
+                except Exception as e:
+                    logging.error(f"Error processing file {file_info['filename']}: {str(e)}")
+                    continue
+            
+            # Update UI on main thread
+            self.root.after(0, lambda: self.finish_graph_generation(file_data, column, log_scale))
+        
+        # Run in background thread
+        thread = threading.Thread(target=load_files_worker)
+        thread.daemon = True
+        thread.start()
+
+    def finish_graph_generation(self, file_data, column, log_scale):
+        """Complete graph generation on main thread"""
+        self.hide_progress()
+        
         if file_data:
             self.current_file_data = file_data
             self.update_plot(file_data, column, log_scale)
-            
-            # Update file selector dropdown
+              # Update file selector dropdown
             file_names = [info[0]['filename'] for info in file_data]
             self.file_selector['values'] = file_names
             if file_names:
@@ -712,11 +786,20 @@ class ParalyneReaderApp:
             messagebox.showerror("Error", "No valid data found to plot")
 
     def load_file_data(self, file_info, column):
-        """Load data from a file for the specified column"""
+        """Load data from a file for the specified column (optimized version - NO offset applied here)"""
+        cache_key = self.get_cache_key(file_info, column)
+        
+        # Check cache first (cache stores data WITHOUT time offset)
+        if cache_key in self.raw_data_cache:
+            return self.raw_data_cache[cache_key]
+        
         times = []
         values = []
         
         try:
+            file_size = os.path.getsize(file_info['path'])
+            is_large_file = file_size > 1024 * 1024  # 1MB threshold
+            
             with open(file_info['path'], 'r', newline='', encoding='utf-8') as csvfile:
                 reader = csv.reader(csvfile)
                 header = next(reader, None)
@@ -733,32 +816,76 @@ class ParalyneReaderApp:
                         time_column_index = i
                         break
                 
-                for row in reader:
-                    if len(row) > max(column_index, time_column_index):                        
-                        try:
-                            # Parse time from the determined time column
-                            if len(row[time_column_index]) > 0:
-                                time_val = self.parse_time(row[time_column_index])
-                                value = float(row[column_index])
-                                
-                                # Convert pico value to machine value
-                                converted_value = self.convert_pico_to_machine_value(value)
-                                
-                                # Apply time offset
-                                offset = self.file_offsets.get(file_info['filename'], 0.0)
-                                if isinstance(time_val, datetime):
-                                    time_val = time_val + timedelta(seconds=offset)
-                                else:
-                                    time_val += offset
-                                
-                                times.append(time_val)
-                                values.append(converted_value)
-                        except (ValueError, TypeError):
-                            continue
+                if is_large_file:
+                    # Process large files in chunks
+                    chunk = []
+                    total_rows = 0
+                    processed_rows = 0
+                    
+                    # Count total rows for progress
+                    csvfile.seek(0)
+                    next(csv.reader(csvfile))  # Skip header
+                    total_rows = sum(1 for _ in csv.reader(csvfile))
+                    csvfile.seek(0)
+                    next(csv.reader(csvfile))  # Skip header again
+                    
+                    reader = csv.reader(csvfile)
+                    
+                    for row in reader:
+                        chunk.append(row)
+                        processed_rows += 1
+                        
+                        if len(chunk) >= self.chunk_size:
+                            chunk_times, chunk_values = self.process_chunk(
+                                chunk, header, column, time_column_index, column_index, file_info, apply_offset=False
+                            )
+                            times.extend(chunk_times)
+                            values.extend(chunk_values)
+                            chunk = []
+                            
+                            # Update progress
+                            progress = (processed_rows / total_rows) * 100
+                            self.root.after(0, lambda p=progress: self.update_progress(
+                                p, f"Processing {file_info['filename']}: {processed_rows}/{total_rows} rows"
+                            ))
+                        
+                        # Allow GUI to update
+                        if processed_rows % 1000 == 0:
+                            self.root.update()
+                    
+                    # Process remaining rows
+                    if chunk:
+                        chunk_times, chunk_values = self.process_chunk(
+                            chunk, header, column, time_column_index, column_index, file_info, apply_offset=False
+                        )
+                        times.extend(chunk_times)
+                        values.extend(chunk_values)
+                else:
+                    # Process smaller files normally
+                    for row in reader:
+                        if len(row) > max(column_index, time_column_index):                        
+                            try:
+                                # Parse time from the determined time column
+                                if len(row[time_column_index]) > 0:
+                                    time_val = self.parse_time(row[time_column_index])
+                                    value = float(row[column_index])
+                                    
+                                    # Convert pico value to machine value
+                                    converted_value = self.convert_pico_to_machine_value(value)
+                                    
+                                    # DO NOT apply time offset here - store raw times
+                                    times.append(time_val)
+                                    values.append(converted_value)
+                            except (ValueError, TypeError):
+                                continue
+            
+            # Cache the loaded data (WITHOUT time offset applied)
+            self.raw_data_cache[cache_key] = (times, values)
+            
         except Exception as e:
             logging.error(f"Error loading file {file_info['filename']}: {str(e)}")
         
-        return times, values      
+        return times, values
     def convert_pico_to_machine_value(self, pico_value):
         """Convert pico reading (a) to machine value (b) using: a = 174.96 * b + 1202.88"""
         # Rearranging: b = (a - 1202.88) / 174.96
@@ -797,8 +924,7 @@ class ParalyneReaderApp:
         try:
             # Clear previous graph
             self.ax.clear()
-            
-            # Define line styles and markers for additional distinctiveness
+              # Define line styles and markers for additional distinctiveness
             line_styles = ['-', '--', '-.', ':']
             markers = ['o', 's', '^', 'D', 'v', '*', 'p', 'h', '+', 'x']
             
@@ -811,12 +937,17 @@ class ParalyneReaderApp:
                 if self.show_normalized_var.get():
                     plot_values = self.process_data(values)
                 
+                # Downsample data for better performance
+                plot_times, plot_values = self.downsample_data(times, plot_values)
+                
                 color = self.color_cycle[i % len(self.color_cycle)]
                 style = line_styles[i % len(line_styles)]
                 marker = markers[i % len(markers)]
                 
                 # Create label with processing info
                 label = os.path.basename(file_info['filename'])
+                if len(values) != len(plot_values):
+                    label += f" (sampled: {len(plot_values)}/{len(values)})"
                 if self.show_normalized_var.get():
                     processing_info = []
                     if self.smoothing_var.get() != "none":
@@ -826,14 +957,14 @@ class ParalyneReaderApp:
                     if processing_info:
                         label += f" [{', '.join(processing_info)}]"
                 
-                # Plot with style variations
-                if len(plot_values) > 1000:  # Don't use markers for large datasets
-                    self.ax.plot(times, plot_values, color=color, linestyle=style, 
+                # Plot with style variations - use markers only for small datasets
+                if len(plot_values) > 500:  # Don't use markers for large datasets
+                    self.ax.plot(plot_times, plot_values, color=color, linestyle=style, 
                                label=label, linewidth=1.5)
                 else:
-                    self.ax.plot(times, plot_values, color=color, linestyle=style, 
-                               marker=marker, markersize=4, label=label, 
-                               linewidth=1.5, markevery=max(1, len(plot_values)//20))
+                    self.ax.plot(plot_times, plot_values, color=color, linestyle=style, 
+                               marker=marker, markersize=3, label=label, 
+                               linewidth=1.5, markevery=max(1, len(plot_values)//50))
             
             # Set labels and title with better defaults
             self.ax.set_xlabel("Timestamp")
@@ -915,20 +1046,39 @@ class ParalyneReaderApp:
             logging.error(f"Error in file selection: {str(e)}")
 
     def update_time_offset(self, value):
-        """Update the time offset for the selected file"""
+        """Update the time offset for the selected file (optimized)"""
         try:
             if not self.current_file_data or self.selected_file_index >= len(self.current_file_data):
                 return
             
             offset_value = float(value)
             file_info = self.current_file_data[self.selected_file_index][0]
+            old_offset = self.file_offsets.get(file_info['filename'], 0.0)
+            
+            # Only update if offset actually changed
+            if abs(offset_value - old_offset) < 0.01:  # Avoid micro-updates
+                return
+                
             self.file_offsets[file_info['filename']] = offset_value
             
-            # Regenerate the graph with new offsets
-            self.generate_graph()
+            # No need to invalidate cache since we apply offset separately
+            # Just regenerate the graph with new offsets
+            if not hasattr(self, '_updating_offset') or not self._updating_offset:
+                self._updating_offset = True
+                self.root.after(50, self._delayed_graph_update)  # Faster debounce for offset changes
             
         except Exception as e:
             logging.error(f"Error updating time offset: {str(e)}")
+
+    def _delayed_graph_update(self):
+        """Delayed graph update for smoother time offset changes"""
+        try:
+            self._updating_offset = False
+            if self.current_file_data and self.current_column:
+                self.generate_graph()
+        except Exception as e:
+            logging.error(f"Error in delayed graph update: {str(e)}")
+            self._updating_offset = False
 
     def adjust_time_offset(self, increment):
         """Adjust the time offset by the given increment"""
@@ -1009,6 +1159,104 @@ class ParalyneReaderApp:
                 return str(date_input)
         except Exception:
             return "Unknown"
+    
+    def show_progress(self, message="Loading..."):
+        """Show progress bar with message"""
+        self.progress_label.config(text=message)
+        self.progress_var.set(0)
+        self.progress_bar.pack(fill=tk.X, padx=10, pady=5)
+        self.progress_label.pack(pady=2)
+        self.progress_frame.pack(fill=tk.X, pady=5)
+        self.root.update()
+
+    def update_progress(self, value, message=""):
+        """Update progress bar value and message"""
+        self.progress_var.set(value)
+        if message:
+            self.progress_label.config(text=message)
+        self.root.update()
+
+    def hide_progress(self):
+        """Hide progress bar"""
+        self.progress_frame.pack_forget()
+        self.root.update()
+
+    def get_cache_key(self, file_info, column):
+        """Generate cache key for file data"""
+        return f"{file_info['filename']}_{column}_{file_info.get('size', 0)}"
+
+    def downsample_data(self, times, values, max_points=None):
+        """Downsample data for efficient plotting"""
+        if max_points is None:
+            max_points = self.max_plot_points
+            
+        if len(values) <= max_points:
+            return times, values
+        
+        # Use every nth point for downsampling
+        step = max(1, len(values) // max_points)
+        return times[::step], values[::step]
+
+    def process_chunk(self, chunk, header, column, time_column_index, column_index, file_info, apply_offset=True):
+        """Process a chunk of CSV rows"""
+        times = []
+        values = []
+        
+        for row in chunk:
+            if len(row) > max(column_index, time_column_index):
+                try:
+                    # Parse time from the determined time column
+                    if len(row[time_column_index]) > 0:
+                        time_val = self.parse_time(row[time_column_index])
+                        value = float(row[column_index])
+                        
+                        # Convert pico value to machine value
+                        converted_value = self.convert_pico_to_machine_value(value)
+                        
+                        # Apply time offset only if requested
+                        if apply_offset:
+                            offset = self.file_offsets.get(file_info['filename'], 0.0)
+                            if isinstance(time_val, datetime):
+                                time_val = time_val + timedelta(seconds=offset)
+                            else:
+                                time_val += offset
+                        
+                        times.append(time_val)
+                        values.append(converted_value)
+                except (ValueError, TypeError):
+                    continue
+        
+        return times, values
+
+    def clear_caches(self):
+        """Clear all cached data"""
+        self.raw_data_cache.clear()
+        self.processed_data_cache.clear()
+        
+    def clear_cache_for_file(self, filename):
+        """Clear cache for a specific file"""
+        keys_to_remove = [key for key in self.raw_data_cache.keys() if key.startswith(filename)]
+        for key in keys_to_remove:
+            del self.raw_data_cache[key]
+        
+        keys_to_remove = [key for key in self.processed_data_cache.keys() if key.startswith(filename)]
+        for key in keys_to_remove:
+            del self.processed_data_cache[key]
+
+    def apply_time_offset_to_data(self, times, file_info):
+        """Apply time offset to time data without modifying cached data"""
+        offset = self.file_offsets.get(file_info['filename'], 0.0)
+        if offset == 0.0:
+            return times
+        
+        offset_times = []
+        for time_val in times:
+            if isinstance(time_val, datetime):
+                offset_times.append(time_val + timedelta(seconds=offset))
+            else:
+                offset_times.append(time_val + offset)
+        
+        return offset_times
 
 if __name__ == "__main__":
     root = tk.Tk()
