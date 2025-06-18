@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*/pyinstaller/*
 
 # Environment and virtual environments
 venv/
@@ -54,3 +55,4 @@ auth.py
 #downloaded files
 *.csv
 *.json
+
