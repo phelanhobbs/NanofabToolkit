@@ -126,6 +126,9 @@ class ParalyneReaderApp:
         columns = ("filename", "size", "modified")
         self.tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=8)
         
+        # Configure tags for different file states
+        self.tree.tag_configure("downloaded", foreground="gray", font=("TkDefaultFont", 9, "italic"))
+        
         # Define column headings and widths
         self.tree.heading("filename", text="Filename", anchor="w")
         self.tree.heading("size", text="Size", anchor="center")
@@ -381,7 +384,13 @@ class ParalyneReaderApp:
                     size = "Unknown"
                     modified = "Unknown"
                 
-                self.tree.insert("", "end", values=(filename, size, modified))
+                # Insert item and check if already downloaded
+                item_id = self.tree.insert("", "end", values=(filename, size, modified))
+                
+                # Mark already downloaded files with different tag
+                if self.is_file_already_downloaded(filename):
+                    self.tree.set(item_id, "filename", f"{filename} (Downloaded)")
+                    self.tree.item(item_id, tags=("downloaded",))
             
             self.status_label.config(text=f"Loaded {len(files)} files", foreground="green")
             
@@ -389,6 +398,10 @@ class ParalyneReaderApp:
             error_msg = f"Failed to load file list: {str(e)}"
             self.status_label.config(text=error_msg, foreground="red")
             messagebox.showerror("Error", error_msg)
+
+    def is_file_already_downloaded(self, filename):
+        """Check if a file with the given name is already in the downloaded files list"""
+        return any(file_info['filename'] == filename for file_info in self.downloaded_files)
 
     def download_selected_file(self):
         """Download the selected file"""
@@ -400,39 +413,55 @@ class ParalyneReaderApp:
         item = self.tree.item(selection[0])
         filename = item['values'][0]
         
+        # Remove " (Downloaded)" suffix if present for the actual filename
+        if filename.endswith(" (Downloaded)"):
+            actual_filename = filename.replace(" (Downloaded)", "")
+        else:
+            actual_filename = filename
+        
+        # Check if file is already downloaded
+        if self.is_file_already_downloaded(actual_filename):
+            messagebox.showwarning("File Already Downloaded", 
+                                 f"The file '{actual_filename}' has already been downloaded.\n"
+                                 f"Remove it from the downloaded files list if you want to download it again.")
+            return
+        
         try:
-            self.status_label.config(text=f"Downloading {filename}...", foreground="blue")
+            self.status_label.config(text=f"Downloading {actual_filename}...", foreground="blue")
             self.root.update()
             
             # Call download_file function
-            downloaded_path = download_file(filename)
+            downloaded_path = download_file(actual_filename)
             
             # Add to downloaded files list
             file_info = {
-                'filename': filename,
+                'filename': actual_filename,
                 'path': downloaded_path,
                 'columns': [],
                 'tree_id': None
             }
             
             # Add to downloaded files treeview FIRST
-            status = "Loading..." if filename.lower().endswith('.csv') else "Unknown format"
+            status = "Loading..." if actual_filename.lower().endswith('.csv') else "Unknown format"
             tree_id = self.downloaded_tree.insert('', tk.END, 
-                                             values=(filename, status, 0))
+                                             values=(actual_filename, status, 0))
             file_info['tree_id'] = tree_id
             
             # Load columns if it's a CSV file AFTER setting tree_id
-            if filename.lower().endswith('.csv'):
+            if actual_filename.lower().endswith('.csv'):
                 self.load_csv_columns(file_info)
             
             self.downloaded_files.append(file_info)
             self.update_common_columns()
             
-            self.status_label.config(text=f"Successfully downloaded {filename}", foreground="green")
-            messagebox.showinfo("Download Complete", f"File '{filename}' has been downloaded successfully.")
+            # Refresh the file list to show the downloaded status
+            self.refresh_file_list()
+            
+            self.status_label.config(text=f"Successfully downloaded {actual_filename}", foreground="green")
+            messagebox.showinfo("Download Complete", f"File '{actual_filename}' has been downloaded successfully.")
             
         except Exception as e:
-            error_msg = f"Failed to download {filename}: {str(e)}"
+            error_msg = f"Failed to download {actual_filename}: {str(e)}"
             self.status_label.config(text=error_msg, foreground="red")
             messagebox.showerror("Download Error", error_msg)
 
@@ -535,6 +564,9 @@ class ParalyneReaderApp:
         # Update common columns
         self.update_common_columns()
         
+        # Refresh the file list to update download status
+        self.refresh_file_list()
+        
         # Clear graph if no files remain
         if not self.downloaded_files:
             self.ax.clear()
@@ -556,6 +588,10 @@ class ParalyneReaderApp:
         
         # Update columns and clear graph
         self.update_common_columns()
+        
+        # Refresh the file list to update download status
+        self.refresh_file_list()
+        
         self.ax.clear()
         self.canvas.draw()
 
