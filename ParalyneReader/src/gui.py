@@ -231,7 +231,7 @@ class ParalyneReaderApp:
                        variable=self.auto_zoom_var).pack(side=tk.LEFT, padx=(0, 10))
 
         # Show normalized data option
-        self.show_normalized_var = tk.BooleanVar(value=False)
+        self.show_normalized_var = tk.BooleanVar(value=True)
         normalized_check = ttk.Checkbutton(options_row2, text="Show normalized", 
                        variable=self.show_normalized_var, command=self.on_normalization_change)
         normalized_check.pack(side=tk.LEFT, padx=(0, 10))
@@ -250,7 +250,7 @@ class ParalyneReaderApp:
 
         # Smoothing method selection
         ttk.Label(norm_inner, text="Smoothing:").grid(row=0, column=0, sticky="w", padx=(0, 5))
-        self.smoothing_var = tk.StringVar(value="none")
+        self.smoothing_var = tk.StringVar(value="moving_average")
         smoothing_combo = ttk.Combobox(norm_inner, textvariable=self.smoothing_var, 
                                       values=["none", "moving_average", "savgol", "gaussian", "median"], 
                                       width=15, state="readonly")
@@ -259,8 +259,8 @@ class ParalyneReaderApp:
 
         # Window size for smoothing
         ttk.Label(norm_inner, text="Window:").grid(row=0, column=2, sticky="w", padx=(10, 5))
-        self.window_size_var = tk.IntVar(value=11)
-        window_spin = ttk.Spinbox(norm_inner, from_=3, to=101, increment=2, 
+        self.window_size_var = tk.IntVar(value=2500)
+        window_spin = ttk.Spinbox(norm_inner, from_=3, to=10000, increment=2, 
                                  textvariable=self.window_size_var, width=8, 
                                  command=self.on_processing_change)
         window_spin.grid(row=0, column=3, sticky="w", padx=(0, 10))
@@ -603,18 +603,34 @@ class ParalyneReaderApp:
         self.canvas.draw()
 
     def apply_smoothing(self, values, method, window_size):
-        """Apply smoothing to data values"""
+        """Apply smoothing to data values with adaptive window sizing"""
         if method == "none" or len(values) < 3:
             return values
         
         values_array = np.array(values)
         
+        # For moving average, use adaptive window size
+        if method == "moving_average":
+            # If data has less than 2500 points, use the full length
+            # Otherwise use the specified window size
+            if len(values) < 2500:
+                adaptive_window = len(values)
+            else:
+                adaptive_window = min(window_size, len(values))
+        else:
+            # For other methods, use the original logic
+            adaptive_window = min(window_size, len(values))
+        
         try:
             if method == "moving_average":
                 # Simple moving average
-                window = min(window_size, len(values))
+                window = adaptive_window
                 if window % 2 == 0:
                     window += 1  # Ensure odd window size
+                
+                # Don't smooth if window is too large relative to data
+                if window >= len(values):
+                    return values
                 
                 # Pad the array to handle edges
                 pad_width = window // 2
@@ -627,7 +643,7 @@ class ParalyneReaderApp:
                 
             elif method == "savgol":
                 # Savitzky-Golay filter
-                window = min(window_size, len(values))
+                window = adaptive_window
                 if window % 2 == 0:
                     window += 1  # Ensure odd window size
                 if window < 3:
@@ -639,13 +655,13 @@ class ParalyneReaderApp:
                 
             elif method == "gaussian":
                 # Gaussian filter
-                sigma = window_size / 6.0  # Convert window size to sigma
+                sigma = adaptive_window / 6.0  # Convert window size to sigma
                 smoothed = gaussian_filter1d(values_array, sigma)
                 return smoothed.tolist()
                 
             elif method == "median":
                 # Median filter
-                window = min(window_size, len(values))
+                window = adaptive_window
                 if window % 2 == 0:
                     window += 1  # Ensure odd window size
                 
