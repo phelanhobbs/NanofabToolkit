@@ -945,11 +945,12 @@ class ParalyneReaderApp:
             logging.error(f"Error loading file {file_info['filename']}: {str(e)}")
         
         return times, values
+    
     def convert_pico_to_machine_value(self, pico_value):
         """Convert pico reading (a) to machine value (b) using: a = 174.96 * b + 1202.88"""
         # Rearranging: b = (a - 1202.88) / 174.96
         return (pico_value - 1202.88) / 174.96
-
+    
     def parse_time(self, time_str):
         """Parse time string into datetime or float"""
         # Try common datetime formats first
@@ -967,9 +968,11 @@ class ParalyneReaderApp:
             except ValueError:
                 continue
         
-        # Try parsing as float (seconds)
+        # Try parsing as float (convert from milliseconds to minutes)
         try:
-            return float(time_str)
+            timestamp_ms = float(time_str)
+            # Convert milliseconds to minutes by dividing by 60,000
+            return timestamp_ms / 60000.0
         except ValueError:
             # If all else fails, return the string
             return time_str
@@ -1027,9 +1030,8 @@ class ParalyneReaderApp:
                     self.ax.plot(plot_times, plot_values, color=color, linestyle=style, 
                                marker=marker, markersize=3, label=label, 
                                linewidth=1.5, markevery=max(1, len(plot_values)//50))
-            
-            # Set labels and title with better defaults
-            self.ax.set_xlabel("Timestamp")
+              # Set labels and title with better defaults
+            self.ax.set_xlabel("Time (minutes)")
               # Set y-axis label based on column name and processing
             y_label = column
             if self.show_normalized_var.get():
@@ -1393,9 +1395,8 @@ class ParalyneReaderApp:
 
     def format_plot(self):
         """Format the plot with labels, legend, etc."""
-        try:
-            # Set labels
-            self.ax.set_xlabel('Time')
+        try:            # Set labels
+            self.ax.set_xlabel('Time (minutes)')
             
             # Set y-label based on column type
             column = self.current_column or 'Value'
