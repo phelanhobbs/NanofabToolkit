@@ -274,58 +274,65 @@ class ParalyneReaderApp:
         normalize_combo.grid(row=1, column=1, sticky="w", padx=(0, 10), pady=(5, 0))
         normalize_combo.bind("<<ComboboxSelected>>", self.on_processing_change)
 
-        # Time offset controls
-        time_offset_frame = ttk.LabelFrame(graph_frame, text="Time Alignment")
-        time_offset_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
-        time_offset_frame.columnconfigure(1, weight=1)
+        # Time offset controls - HIDDEN FOR NOW
+        # time_offset_frame = ttk.LabelFrame(graph_frame, text="Time Alignment")
+        # time_offset_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        # time_offset_frame.columnconfigure(1, weight=1)
 
-        # File selector for time offset
-        ttk.Label(time_offset_frame, text="File:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        self.file_selector_var = tk.StringVar()
-        self.file_selector = ttk.Combobox(time_offset_frame, textvariable=self.file_selector_var, 
-                                         width=30, state="readonly")
-        self.file_selector.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
-        self.file_selector.bind("<<ComboboxSelected>>", self.on_file_selected)
+        # # File selector for time offset
+        # ttk.Label(time_offset_frame, text="File:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        # self.file_selector_var = tk.StringVar()
+        # self.file_selector = ttk.Combobox(time_offset_frame, textvariable=self.file_selector_var, 
+        #                                  width=30, state="readonly")
+        # self.file_selector.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
+        # self.file_selector.bind("<<ComboboxSelected>>", self.on_file_selected)
 
-        # Slider frame
-        ttk.Label(time_offset_frame, text="Offset (s):").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        # # Slider frame
+        # ttk.Label(time_offset_frame, text="Offset (s):").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         
-        slider_frame = ttk.Frame(time_offset_frame)
-        slider_frame.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
-        slider_frame.columnconfigure(1, weight=1)
+        # slider_frame = ttk.Frame(time_offset_frame)
+        # slider_frame.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
+        # slider_frame.columnconfigure(1, weight=1)
 
+        # self.time_offset_var = tk.DoubleVar(value=0.0)
+        # self.time_offset_slider = ttk.Scale(
+        #     slider_frame, 
+        #     from_=-300.0, 
+        #     to=300.0, 
+        #     variable=self.time_offset_var, 
+        #     orient=tk.HORIZONTAL,
+        #     command=self.update_time_offset
+        # )
+        # self.time_offset_slider.grid(row=0, column=1, sticky="ew", padx=5)
+
+        # # Fine adjustment buttons
+        # ttk.Button(slider_frame, text="◄", width=2, 
+        #           command=lambda: self.adjust_time_offset(-1.0)).grid(row=0, column=0)
+
+        # self.time_offset_entry = ttk.Entry(slider_frame, width=8, 
+        #                                  textvariable=self.time_offset_var)
+        # self.time_offset_entry.grid(row=0, column=2, padx=5)
+        # self.time_offset_entry.bind("<Return>", self.on_offset_entry)
+        # self.time_offset_entry.bind("<FocusOut>", self.on_offset_entry)
+
+        # ttk.Button(slider_frame, text="►", width=2, 
+        #           command=lambda: self.adjust_time_offset(1.0)).grid(row=0, column=3)
+
+        # # Reset buttons frame
+        # reset_frame = ttk.Frame(time_offset_frame)
+        # reset_frame.grid(row=2, column=0, columnspan=2, pady=5)
+
+        # ttk.Button(reset_frame, text="Reset Offset", 
+        #           command=self.reset_time_offset).pack(side=tk.LEFT, padx=5)
+        # ttk.Button(reset_frame, text="Reset All Files", 
+        #           command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)
+        
+        # Initialize variables for compatibility
+        self.file_selector_var = tk.StringVar()
         self.time_offset_var = tk.DoubleVar(value=0.0)
-        self.time_offset_slider = ttk.Scale(
-            slider_frame, 
-            from_=-300.0, 
-            to=300.0, 
-            variable=self.time_offset_var, 
-            orient=tk.HORIZONTAL,
-            command=self.update_time_offset
-        )
-        self.time_offset_slider.grid(row=0, column=1, sticky="ew", padx=5)
-
-        # Fine adjustment buttons
-        ttk.Button(slider_frame, text="◄", width=2, 
-                  command=lambda: self.adjust_time_offset(-1.0)).grid(row=0, column=0)
-
-        self.time_offset_entry = ttk.Entry(slider_frame, width=8, 
-                                         textvariable=self.time_offset_var)
-        self.time_offset_entry.grid(row=0, column=2, padx=5)
-        self.time_offset_entry.bind("<Return>", self.on_offset_entry)
-        self.time_offset_entry.bind("<FocusOut>", self.on_offset_entry)
-
-        ttk.Button(slider_frame, text="►", width=2, 
-                  command=lambda: self.adjust_time_offset(1.0)).grid(row=0, column=3)
-
-        # Reset buttons frame
-        reset_frame = ttk.Frame(time_offset_frame)
-        reset_frame.grid(row=2, column=0, columnspan=2, pady=5)
-
-        ttk.Button(reset_frame, text="Reset Offset", 
-                  command=self.reset_time_offset).pack(side=tk.LEFT, padx=5)
-        ttk.Button(reset_frame, text="Reset All Files", 
-                  command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)        # Graph display frame
+        self.file_selector = None
+        
+        # Graph display frame
         display_frame = ttk.LabelFrame(graph_frame, text="Graph")
         display_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
@@ -767,9 +774,8 @@ class ParalyneReaderApp:
                 # Load raw data (without time offset)
                 raw_times, values = self.load_file_data(file_info, column)
                 if raw_times and values:
-                    # Apply time offset separately
-                    times = self.apply_time_offset_to_data(raw_times, file_info)
-                    file_data.append((file_info, times, values))
+                    # Store raw times and values so we can re-apply offsets later
+                    file_data.append((file_info, raw_times, values))
             except Exception as e:
                 logging.error(f"Error processing file {file_info['filename']}: {str(e)}")
                 continue
@@ -790,9 +796,8 @@ class ParalyneReaderApp:
                       # Load raw data (without time offset)
                     raw_times, values = self.load_file_data(file_info, column)
                     if raw_times and values:
-                        # Apply time offset separately
-                        times = self.apply_time_offset_to_data(raw_times, file_info)
-                        file_data.append((file_info, times, values))
+                        # Store raw times and values so we can re-apply offsets later
+                        file_data.append((file_info, raw_times, values))
                 except Exception as e:
                     logging.error(f"Error processing file {file_info['filename']}: {str(e)}")
                     continue
@@ -812,12 +817,14 @@ class ParalyneReaderApp:
         if file_data:
             self.current_file_data = file_data
             self.update_plot(file_data, column, log_scale)
-              # Update file selector dropdown
-            file_names = [info[0]['filename'] for info in file_data]
-            self.file_selector['values'] = file_names
-            if file_names:
-                self.file_selector_var.set(file_names[0])
-                self.selected_file_index = 0
+            
+            # Update file selector dropdown (only if it exists)
+            if hasattr(self, 'file_selector') and self.file_selector is not None:
+                file_names = [info[0]['filename'] for info in file_data]
+                self.file_selector['values'] = file_names
+                if file_names:
+                    self.file_selector_var.set(file_names[0])
+                    self.selected_file_index = 0
         else:
             messagebox.showerror("Error", "No valid data found to plot")
 
@@ -964,9 +971,12 @@ class ParalyneReaderApp:
             line_styles = ['-', '--', '-.', ':']
             markers = ['o', 's', '^', 'D', 'v', '*', 'p', 'h', '+', 'x']
             
-            for i, (file_info, times, values) in enumerate(file_data):
-                if not times or not values:
+            for i, (file_info, raw_times, values) in enumerate(file_data):
+                if not raw_times or not values:
                     continue
+                
+                # Apply time offset to raw times
+                times = self.apply_time_offset_to_data(raw_times, file_info)
                 
                 # Process values if normalization is enabled
                 plot_values = values
@@ -1097,11 +1107,8 @@ class ParalyneReaderApp:
                 
             self.file_offsets[file_info['filename']] = offset_value
             
-            # No need to invalidate cache since we apply offset separately
-            # Just regenerate the graph with new offsets
-            if not hasattr(self, '_updating_offset') or not self._updating_offset:
-                self._updating_offset = True
-                self.root.after(50, self._delayed_graph_update)  # Faster debounce for offset changes
+            # Update the plot immediately for better responsiveness
+            self.update_plot_with_offsets()
             
         except Exception as e:
             logging.error(f"Error updating time offset: {str(e)}")
@@ -1149,14 +1156,14 @@ class ParalyneReaderApp:
         file_info = self.current_file_data[self.selected_file_index][0]
         self.file_offsets[file_info['filename']] = 0.0
         self.time_offset_var.set(0.0)
-        self.generate_graph()
+        self.update_plot_with_offsets()
 
     def reset_all_offsets(self):
         """Reset time offsets for all files"""
         self.file_offsets.clear()
         self.time_offset_var.set(0.0)
         if self.current_file_data:
-            self.generate_graph()
+            self.update_plot_with_offsets()
 
     def format_file_size(self, size_bytes):
         """Format file size in human readable format"""
@@ -1293,6 +1300,138 @@ class ParalyneReaderApp:
                 offset_times.append(time_val + offset)
         
         return offset_times
+
+    def update_plot_with_offsets(self):
+        """Update the existing plot with new time offsets without regenerating everything"""
+        try:
+            if not self.current_file_data or not hasattr(self, 'ax'):
+                return
+            
+            # Clear the plot
+            self.ax.clear()
+            
+            # Track if we have datetime objects for formatting
+            has_datetime = False
+            
+            # Re-plot all files with updated offsets
+            for i, (file_info, raw_times, values) in enumerate(self.current_file_data):
+                try:
+                    # Apply current offset to the raw times
+                    times = self.apply_time_offset_to_data(raw_times, file_info)
+                    
+                    # Check if we have datetime objects
+                    if times and isinstance(times[0], datetime):
+                        has_datetime = True
+                    
+                    # Apply any processing (smoothing, normalization)
+                    processed_times, processed_values = self.apply_processing(times, values, file_info)
+                    
+                    # Plot the data
+                    color = self.color_cycle[i % len(self.color_cycle)]
+                    label = self.create_label(file_info)
+                    
+                    self.ax.plot(processed_times, processed_values, 
+                               color=color, label=label, linewidth=1.5)
+                    
+                except Exception as e:
+                    logging.error(f"Error plotting file {file_info['filename']}: {str(e)}")
+                    continue
+            
+            # Update plot formatting
+            self.format_plot()
+            
+            # Format x-axis for datetime if applicable
+            if has_datetime:
+                self.figure.autofmt_xdate()
+            
+            # Refresh the canvas
+            self.canvas.draw()
+            
+        except Exception as e:
+            logging.error(f"Error updating plot with offsets: {str(e)}")
+
+    def apply_processing(self, times, values, file_info):
+        """Apply smoothing and normalization to data"""
+        try:
+            processed_values = values.copy()
+            
+            # Apply smoothing if enabled
+            smoothing_method = self.smoothing_var.get()
+            if smoothing_method != "none":
+                window_size = self.window_size_var.get()
+                processed_values = self.apply_smoothing(processed_values, smoothing_method, window_size)
+            
+            # Apply normalization if enabled
+            if self.show_normalized_var.get():
+                normalize_method = self.normalize_var.get()
+                processed_values = self.apply_normalization(processed_values, normalize_method)
+            
+            return times, processed_values
+            
+        except Exception as e:
+            logging.error(f"Error applying processing: {str(e)}")
+            return times, values
+
+    def format_plot(self):
+        """Format the plot with labels, legend, etc."""
+        try:
+            # Set labels
+            self.ax.set_xlabel('Time')
+            
+            # Set y-label based on column type
+            column = self.current_column or 'Value'
+            if hasattr(self, 'show_normalized_var') and self.show_normalized_var.get():
+                if "pressure" in column.lower() or "pico" in column.lower():
+                    y_label = f"{column} (Pressure) - Normalized Machine Values"
+                else:
+                    y_label = f"{column} - Normalized Values"
+            else:
+                if "pressure" in column.lower() or "pico" in column.lower():
+                    y_label = f"{column} (Pressure) - Machine Values"
+                else:
+                    y_label = f"{column}"
+            
+            self.ax.set_ylabel(y_label)
+            
+            # Set log scale if enabled
+            if hasattr(self, 'current_log_scale') and self.current_log_scale:
+                self.ax.set_yscale('log')
+            else:
+                self.ax.set_yscale('linear')
+            
+            # Set title with processing information
+            title = f"{column} vs Time"
+            if hasattr(self, 'show_normalized_var') and self.show_normalized_var.get():
+                title += " (Processed)"
+            self.ax.set_title(title)
+            
+            # Add legend
+            self.ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            
+            # Add grid
+            self.ax.grid(True, alpha=0.3)
+            
+            # Auto-zoom if enabled
+            if hasattr(self, 'auto_zoom_var') and self.auto_zoom_var.get():
+                self.ax.relim()
+                self.ax.autoscale_view()
+            
+            # Tight layout
+            self.figure.tight_layout()
+            
+        except Exception as e:
+            logging.error(f"Error formatting plot: {str(e)}")
+
+    def create_label(self, file_info):
+        """Create a label for the plot line"""
+        try:
+            filename = file_info['filename']
+            # Truncate long filenames
+            if len(filename) > 30:
+                filename = filename[:27] + "..."
+            return filename
+        except:
+            return "Unknown File"
 
 if __name__ == "__main__":
     root = tk.Tk()
