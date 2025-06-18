@@ -1066,6 +1066,9 @@ class ParalyneReaderApp:
             self.ax.legend()
             self.ax.grid(True, alpha=0.3)
             
+            # Add horizontal threshold line at y=15
+            self.ax.axhline(y=15, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Threshold (y=15)')
+            
             # Set log scale if enabled
             if log_scale:
                 self.ax.set_yscale("log")
@@ -1426,6 +1429,9 @@ class ParalyneReaderApp:
             
             # Add grid
             self.ax.grid(True, alpha=0.3)
+            
+            # Add horizontal threshold line at y=15
+            self.ax.axhline(y=15, color='red', linestyle='--', linewidth=2, alpha=0.8, label='Threshold (y=15)')
             
             # Auto-zoom if enabled
             if hasattr(self, 'auto_zoom_var') and self.auto_zoom_var.get():
