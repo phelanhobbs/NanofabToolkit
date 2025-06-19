@@ -115,6 +115,13 @@ NanofabToolKit
 - Use the time alignment section to move data left and right
 - Reset offsets if necessary
 
+# PreciousMetalReader
+
+- First authentication data must be added manually
+- Download useage per month to month basis of 4 different precious metals
+- Precious Metal usage is denoted by both user and tools
+- Downloads information from the cores website without needing to sign in 
+
 ## Building an Executable
 
 To build a standalone executable, after creating a spec file:
