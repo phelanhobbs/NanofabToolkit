@@ -58,6 +58,15 @@ NanofabToolKit
 │   │   └── auth.py                     # MUST BE ADDED BY USER. CODE CONTAINS API ENDPOINT CODE IN ORDER TO DOWNLOAD FROM SITE
 │   ├── main.py                         # Entry Point of the PreciousMetalReader program
 │   └── requirements.txt                # List of dependencies that needs to be installed to run the program (none in this case)
+├── ParalyneReader                  # Downloads and graphs the log files of the paralyne machine
+│   ├── src
+│   │   ├── assets
+│   │   │   ├── icon.ico                # Contains the icon for the paralyne tool
+│   │   │   └── icon.py                 # Contains code to ensure icon is loaded correctly
+│   │   ├── gui.py                      # Defines the GUI of the ParalyneReader
+│   │   └── ParalyneReader.py           # Backend for the tool, downloads files from the server
+│   ├── main.py                         # Entry Point of the PreciousMetalReader program
+│   └── requirements.txt                # List of dependencies that needs to be installed to run the program (none in this case)
 ├── LICENSE                         #MIT LICENSE 
 └── README.MD                       #README definining how this program works (this file you're reading now)
 ```
