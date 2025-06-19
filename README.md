@@ -120,7 +120,15 @@ NanofabToolKit
 - First authentication data must be added manually
 - Download useage per month to month basis of 4 different precious metals
 - Precious Metal usage is denoted by both user and tools
-- Downloads information from the cores website without needing to sign in 
+- Downloads information from the cores website without needing to sign in
+
+# ParalyneReader
+
+- Gathers log files from the server without needing to sing in 
+- allows users to disable smoothing or alter the algorithm being used
+- allows users to denote when and how long it takes to pump down the paralyne machine
+- has horizontal bar at y=15 as that is what is considered "pumped down"
+- having multiple runs allows users to compare runs
 
 ## Building an Executable
 
