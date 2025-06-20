@@ -164,7 +164,12 @@ class ParalyneReaderApp:
         downloaded_frame = ttk.LabelFrame(file_frame, text="Downloaded Files", padding="5")
         downloaded_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
         downloaded_frame.columnconfigure(0, weight=1)
-        downloaded_frame.rowconfigure(0, weight=1)
+        downloaded_frame.rowconfigure(1, weight=1)
+        
+        # Info label about download location
+        info_label = ttk.Label(downloaded_frame, text="Files are saved to: ./ParalyneLogs/", 
+                              font=("TkDefaultFont", 8), foreground="gray")
+        info_label.grid(row=0, column=0, sticky=(tk.W), pady=(0, 5))
 
         # Treeview for downloaded files
         downloaded_columns = ("filename", "status", "columns")
@@ -182,12 +187,12 @@ class ParalyneReaderApp:
         downloaded_scrollbar = ttk.Scrollbar(downloaded_frame, orient="vertical", command=self.downloaded_tree.yview)
         self.downloaded_tree.configure(yscrollcommand=downloaded_scrollbar.set)
 
-        self.downloaded_tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        downloaded_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.downloaded_tree.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        downloaded_scrollbar.grid(row=1, column=1, sticky=(tk.N, tk.S))
 
         # Downloaded files buttons
         downloaded_button_frame = ttk.Frame(downloaded_frame)
-        downloaded_button_frame.grid(row=1, column=0, pady=(5, 0), sticky=(tk.W, tk.E))
+        downloaded_button_frame.grid(row=2, column=0, pady=(5, 0), sticky=(tk.W, tk.E))
 
         ttk.Button(downloaded_button_frame, text="Remove Selected", command=self.remove_downloaded_file).pack(side=tk.LEFT, padx=5)
         ttk.Button(downloaded_button_frame, text="Clear All", command=self.clear_downloaded_files).pack(side=tk.LEFT, padx=5)
@@ -464,8 +469,8 @@ class ParalyneReaderApp:
             # Refresh the file list to show the downloaded status
             self.refresh_file_list()
             
-            self.status_label.config(text=f"Successfully downloaded {actual_filename}", foreground="green")
-            messagebox.showinfo("Download Complete", f"File '{actual_filename}' has been downloaded successfully.")
+            self.status_label.config(text=f"Successfully downloaded {actual_filename} to ParalyneLogs/", foreground="green")
+            messagebox.showinfo("Download Complete", f"File '{actual_filename}' has been downloaded successfully to ParalyneLogs/ directory.")
             
         except Exception as e:
             error_msg = f"Failed to download {actual_filename}: {str(e)}"
