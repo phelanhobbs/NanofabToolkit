@@ -5,7 +5,7 @@ import network
 import time
 import machine
 import ubinascii
-from picopass import passWD
+from PicoHelperTools.picopass import passWD
 
 ########################################
 #MESSAGE TO END USER               #####
