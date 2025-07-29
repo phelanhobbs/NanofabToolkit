@@ -21,7 +21,14 @@ This is less of a "Guide" or "Instruction Set", more just writing up the interna
 4) Set up ULINK to work with the pico device
 
     It requires the MAC address of the pico, I have provided a section of code to help determine that. Just run the code in this folder on the pico device and it will print to the console
+
+    Place the getPicoMac.py file and the picopass.py file onto the target PI and run it.
+
     From there, go to getconnected.utah.edu and follow the steps for an "other" device. Place the MAC address alongside a device name and keep note of the password.
+
+    Then, change the value of passWD in the picopass file to that password.
+
+    Re-run the program, if the LED lights up, then you are connected
 
 5) Write your code to upload results up to the server
 
