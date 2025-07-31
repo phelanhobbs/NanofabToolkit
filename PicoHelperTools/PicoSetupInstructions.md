@@ -24,7 +24,7 @@ This is less of a "Guide" or "Instruction Set", more just writing up the interna
 
     Place the getPicoMac.py file and the picopass.py file onto the target PI and run it.
 
-    From there, go to getconnected.utah.edu and follow the steps for an "other" device. Place the MAC address alongside a device name and keep note of the password.
+    From there, go to onboard.utah.edu and follow the steps for an "other" device. Place the MAC address alongside a device name and keep note of the password.
 
     Then, change the value of passWD in the picopass file to that password.
 
