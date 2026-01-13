@@ -241,7 +241,12 @@ class HistoricalDataWindow(QMainWindow):
             "PM1 (μg/m³)", "PM2.5 (μg/m³)", "PM4 (μg/m³)", "PM10 (μg/m³)"
         ])
         self.graph_param_combo.setCurrentText("PM2.5 (μg/m³)")
-        self.graph_param_combo.currentTextChanged.connect(self.update_graph)
+        # Debug: Add a debug slot to verify signal connection
+        def debug_combo_changed(text):
+            print(f"DEBUG: Combo box changed to: {text}")
+            self.update_graph()
+        
+        self.graph_param_combo.currentTextChanged.connect(debug_combo_changed)
         control_layout.addWidget(self.graph_param_combo)
         
         control_layout.addStretch()
@@ -462,138 +467,155 @@ class HistoricalDataWindow(QMainWindow):
     
     def update_graph(self):
         """Update the graph based on selected parameter"""
-        if not self.historical_data:
-            return
+        try:
+            print(f"DEBUG: update_graph() called")  # Debug line
             
-        selected_param = self.graph_param_combo.currentText()
-        
-        # Map display names to data keys
-        param_map = {
-            "PM1 Mass": "mass_pm1",
-            "PM2.5 Mass": "mass_pm2_5", 
-            "PM4 Mass": "mass_pm4",
-            "PM10 Mass": "mass_pm10",
-            "PM0.5 Count": "num_pm0_5",
-            "PM1 Count": "num_pm1",
-            "PM2.5 Count": "num_pm2_5",
-            "PM4 Count": "num_pm4",
-            "PM10 Count": "num_pm10",
-            "PM0.5 (ft³)": "num_pm0_5_ft3",
-            "PM1 (ft³)": "num_pm1_ft3",
-            "PM2.5 (ft³)": "num_pm2_5_ft3",
-            "PM4 (ft³)": "num_pm4_ft3",
-            "PM10 (ft³)": "num_pm10_ft3",
-            "PM1 (μg/m³)": "mass_pm1_ug_m3",
-            "PM2.5 (μg/m³)": "mass_pm2_5_ug_m3",
-            "PM4 (μg/m³)": "mass_pm4_ug_m3",
-            "PM10 (μg/m³)": "mass_pm10_ug_m3"
-        }
-        
-        data_key = param_map.get(selected_param)
-        
-        # Extract timestamps and values
-        timestamps = []
-        values = []
-        
-        for record in self.historical_data:
-            # Try to extract timestamp
-            timestamp_value = None
-            
-            # Check for standard timestamp formats first
-            if "timestamp_iso" in record:
-                timestamp_value = record["timestamp_iso"]
-            elif "timestamp" in record:
-                timestamp_value = record["timestamp"]
-            else:
-                # Look for timestamp in raw data
-                for key, value in record.items():
-                    if isinstance(value, str) and 'T' in value and ':' in value:
-                        timestamp_value = value
-                        break
-                    elif isinstance(key, str) and 'T' in key and ':' in key:
-                        timestamp_value = key
-                        break
+            if not self.historical_data:
+                print("DEBUG: No historical data available")  # Debug line
+                return
                 
-                # If still no timestamp, try Unix timestamp
-                if not timestamp_value:
+            selected_param = self.graph_param_combo.currentText()
+            print(f"DEBUG: Selected parameter: {selected_param}")  # Debug line
+            
+            # Map display names to data keys
+            param_map = {
+                "PM1 Mass": "mass_pm1",
+                "PM2.5 Mass": "mass_pm2_5", 
+                "PM4 Mass": "mass_pm4",
+                "PM10 Mass": "mass_pm10",
+                "PM0.5 Count": "num_pm0_5",
+                "PM1 Count": "num_pm1",
+                "PM2.5 Count": "num_pm2_5",
+                "PM4 Count": "num_pm4",
+                "PM10 Count": "num_pm10",
+                "PM0.5 (ft³)": "num_pm0_5_ft3",
+                "PM1 (ft³)": "num_pm1_ft3",
+                "PM2.5 (ft³)": "num_pm2_5_ft3",
+                "PM4 (ft³)": "num_pm4_ft3",
+                "PM10 (ft³)": "num_pm10_ft3",
+                "PM1 (μg/m³)": "mass_pm1_ug_m3",
+                "PM2.5 (μg/m³)": "mass_pm2_5_ug_m3",
+                "PM4 (μg/m³)": "mass_pm4_ug_m3",
+                "PM10 (μg/m³)": "mass_pm10_ug_m3"
+            }
+            
+            data_key = param_map.get(selected_param)
+            print(f"DEBUG: Data key: {data_key}")  # Debug line
+            
+            # Extract timestamps and values
+            timestamps = []
+            values = []
+            
+            for record in self.historical_data:
+                # Try to extract timestamp
+                timestamp_value = None
+                
+                # Check for standard timestamp formats first
+                if "timestamp_iso" in record:
+                    timestamp_value = record["timestamp_iso"]
+                elif "timestamp" in record:
+                    timestamp_value = record["timestamp"]
+                else:
+                    # Look for timestamp in raw data
                     for key, value in record.items():
-                        if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
-                            try:
-                                timestamp_value = float(key)
-                                break
-                            except:
-                                pass
-                        elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
-                            try:
-                                timestamp_value = float(value)
-                                break
-                            except:
-                                pass
-            
-            # Try to extract value for the selected parameter
-            param_value = None
-            
-            if data_key and data_key in record:
-                param_value = record[data_key]
-            else:
-                # For raw data format, try to find a reasonable value to plot
-                # For now, let's plot the first numeric particle measurement we can find
-                for key, value in record.items():
+                        if isinstance(value, str) and 'T' in value and ':' in value:
+                            timestamp_value = value
+                            break
+                        elif isinstance(key, str) and 'T' in key and ':' in key:
+                            timestamp_value = key
+                            break
+                    
+                    # If still no timestamp, try Unix timestamp
+                    if not timestamp_value:
+                        for key, value in record.items():
+                            if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
+                                try:
+                                    timestamp_value = float(key)
+                                    break
+                                except:
+                                    pass
+                            elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
+                                try:
+                                    timestamp_value = float(value)
+                                    break
+                                except:
+                                    pass
+                
+                # Try to extract value for the selected parameter
+                param_value = None
+                
+                if data_key and data_key in record:
+                    param_value = record[data_key]
+                else:
+                    # For raw data format, try to find a reasonable value to plot
+                    # For now, let's plot the first numeric particle measurement we can find
+                    for key, value in record.items():
+                        try:
+                            if isinstance(key, str) and key.replace('.', '').isdigit():
+                                size = float(key)
+                                if 0.1 <= size <= 50.0:  # Reasonable particle size range
+                                    param_value = float(value) if value is not None else None
+                                    break
+                        except (ValueError, TypeError):
+                            continue
+                
+                # Process timestamp and add to data if we have both timestamp and value
+                if timestamp_value is not None and param_value is not None:
                     try:
-                        if isinstance(key, str) and key.replace('.', '').isdigit():
-                            size = float(key)
-                            if 0.1 <= size <= 50.0:  # Reasonable particle size range
-                                param_value = float(value) if value is not None else None
-                                break
-                    except (ValueError, TypeError):
+                        if isinstance(timestamp_value, str):
+                            # Try ISO format
+                            if 'T' in timestamp_value:
+                                dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                            else:
+                                # Try to parse as Unix timestamp string
+                                dt = datetime.fromtimestamp(float(timestamp_value))
+                        else:
+                            # Numeric timestamp
+                            dt = datetime.fromtimestamp(float(timestamp_value))
+                            
+                        timestamps.append(dt)
+                        values.append(float(param_value))
+                    except (ValueError, TypeError, OSError):
                         continue
             
-            # Process timestamp and add to data if we have both timestamp and value
-            if timestamp_value is not None and param_value is not None:
-                try:
-                    if isinstance(timestamp_value, str):
-                        # Try ISO format
-                        if 'T' in timestamp_value:
-                            dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
-                        else:
-                            # Try to parse as Unix timestamp string
-                            dt = datetime.fromtimestamp(float(timestamp_value))
-                    else:
-                        # Numeric timestamp
-                        dt = datetime.fromtimestamp(float(timestamp_value))
-                        
-                    timestamps.append(dt)
-                    values.append(float(param_value))
-                except (ValueError, TypeError, OSError):
-                    continue
-        
-        if not timestamps or not values:
-            # Clear the plot if no data
+            print(f"DEBUG: Found {len(timestamps)} data points")  # Debug line
+            
+            if not timestamps or not values:
+                # Clear the plot if no data
+                print("DEBUG: No valid data points found, clearing plot")  # Debug line
+                self.ax.clear()
+                self.ax.set_title(f"No Data Available for {selected_param}")
+                self.ax.set_xlabel("Time")
+                self.ax.set_ylabel(selected_param)
+                self.canvas.draw()
+                return
+                
+            # Sort by timestamp
+            sorted_data = sorted(zip(timestamps, values))
+            timestamps, values = zip(*sorted_data)
+            
+            # Clear and plot
+            print("DEBUG: Updating plot with new data")  # Debug line
             self.ax.clear()
-            self.ax.set_title(f"No Data Available for {selected_param}")
+            self.ax.plot(timestamps, values, 'b-o', linewidth=2, markersize=4)
+            self.ax.set_title(f"{selected_param} Over Time")
             self.ax.set_xlabel("Time")
             self.ax.set_ylabel(selected_param)
-            self.canvas.draw()
-            return
+            self.ax.grid(True, alpha=0.3)
             
-        # Sort by timestamp
-        sorted_data = sorted(zip(timestamps, values))
-        timestamps, values = zip(*sorted_data)
-        
-        # Clear and plot
-        self.ax.clear()
-        self.ax.plot(timestamps, values, 'b-o', linewidth=2, markersize=4)
-        self.ax.set_title(f"{selected_param} Over Time")
-        self.ax.set_xlabel("Time")
-        self.ax.set_ylabel(selected_param)
-        self.ax.grid(True, alpha=0.3)
-        
-        # Format x-axis
-        self.figure.autofmt_xdate()
-        
-        # Adjust layout and refresh
-        self.figure.tight_layout()
-        self.canvas.draw()
+            # Format x-axis
+            self.figure.autofmt_xdate()
+            
+            # Adjust layout and refresh
+            self.figure.tight_layout()
+            self.canvas.draw()
+            print("DEBUG: Graph update completed successfully")  # Debug line
+            
+        except Exception as e:
+            print(f"ERROR in update_graph: {str(e)}")  # Debug line
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Graph Update Error", f"Error updating graph: {str(e)}")
 
 
 def main():
