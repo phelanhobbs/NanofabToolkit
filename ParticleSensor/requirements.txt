@@ -2,4 +2,5 @@ requests
 PyQt5
 matplotlib
 numpy
+pytz
 pyinstaller

@@ -5,11 +5,27 @@ Contains data processing and API interface functionality for particle sensor dat
 
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 import warnings
 
 # Disable SSL warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+# Mountain Time timezone
+MOUNTAIN_TZ = pytz.timezone('US/Mountain')
+
+def convert_to_mountain(dt):
+    """Convert datetime to Mountain Time, adding offset to fix API time discrepancy"""
+    # Add 7 hours to fix the time discrepancy observed in the API data
+    corrected_dt = dt + timedelta(hours=7)
+    
+    if corrected_dt.tzinfo is None:
+        # Assume it's now in Mountain Time after correction
+        return MOUNTAIN_TZ.localize(corrected_dt)
+    else:
+        # Convert to Mountain Time if it has timezone info
+        return corrected_dt.astimezone(MOUNTAIN_TZ)
 
 
 class ParticleDataAPI:
@@ -47,17 +63,21 @@ class ParticleDataProcessor:
     
     @staticmethod
     def format_timestamp(timestamp):
-        """Format timestamp for display"""
+        """Format timestamp for display with Mountain Time conversion"""
         if not timestamp:
             return "N/A"
             
         try:
             if isinstance(timestamp, str):
                 dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                return dt.strftime('%Y-%m-%d %H:%M:%S')
+                # Convert to Mountain Time
+                dt_mountain = convert_to_mountain(dt)
+                return dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
             else:
                 dt = datetime.fromtimestamp(timestamp)
-                return dt.strftime('%Y-%m-%d %H:%M:%S')
+                # Convert to Mountain Time
+                dt_mountain = convert_to_mountain(dt)
+                return dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
         except:
             return str(timestamp)
     
@@ -105,8 +125,63 @@ class ParticleDataProcessor:
         return num_conc.get(particle_size, "N/A")
     
     @staticmethod
+    def extract_timestamp_from_record(record):
+        """Extract datetime object from a record with enhanced parsing"""
+        timestamp_value = None
+        
+        # Check for standard timestamp formats first
+        if "timestamp_iso" in record:
+            timestamp_value = record["timestamp_iso"]
+        elif "timestamp" in record:
+            timestamp_value = record["timestamp"]
+        else:
+            # Look for timestamp in raw data
+            for key, value in record.items():
+                if isinstance(value, str) and 'T' in value and ':' in value:
+                    timestamp_value = value
+                    break
+                elif isinstance(key, str) and 'T' in key and ':' in key:
+                    timestamp_value = key
+                    break
+            
+            # If still no timestamp, try Unix timestamp
+            if not timestamp_value:
+                for key, value in record.items():
+                    if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
+                        try:
+                            timestamp_value = float(key)
+                            break
+                        except:
+                            pass
+                    elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
+                        try:
+                            timestamp_value = float(value)
+                            break
+                        except:
+                            pass
+        
+        if timestamp_value is not None:
+            try:
+                if isinstance(timestamp_value, str):
+                    # Try ISO format
+                    if 'T' in timestamp_value:
+                        dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                        return convert_to_mountain(dt)
+                    else:
+                        # Try to parse as Unix timestamp string
+                        dt = datetime.fromtimestamp(float(timestamp_value))
+                        return convert_to_mountain(dt)
+                else:
+                    # Numeric timestamp
+                    dt = datetime.fromtimestamp(float(timestamp_value))
+                    return convert_to_mountain(dt)
+            except (ValueError, TypeError, OSError):
+                pass
+        
+        return None
+    @staticmethod
     def parse_historical_record(record):
-        """Parse a historical data record and extract meaningful values"""
+        """Parse a historical data record and extract meaningful values with enhanced timestamp parsing"""
         parsed = {
             'timestamp_unix': None,
             'timestamp_iso': None,
@@ -144,6 +219,11 @@ class ParticleDataProcessor:
                 'num_pm2_5': record.get("num_pm2_5"),
                 'num_pm4': record.get("num_pm4"),
                 'num_pm10': record.get("num_pm10"),
+                'num_pm0_5_ft3': record.get("num_pm0_5_ft3"),
+                'num_pm1_ft3': record.get("num_pm1_ft3"),
+                'num_pm2_5_ft3': record.get("num_pm2_5_ft3"),
+                'num_pm4_ft3': record.get("num_pm4_ft3"),
+                'num_pm10_ft3': record.get("num_pm10_ft3"),
                 'mass_pm1_ug_m3': record.get("mass_pm1_ug_m3"),
                 'mass_pm2_5_ug_m3': record.get("mass_pm2_5_ug_m3"),
                 'mass_pm4_ug_m3': record.get("mass_pm4_ug_m3"),

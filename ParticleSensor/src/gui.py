@@ -8,7 +8,9 @@ import sys
 import warnings
 import requests
 import json
-from datetime import datetime
+import csv
+from datetime import datetime, timedelta
+import pytz
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -16,11 +18,26 @@ from matplotlib.figure import Figure
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTableWidget, 
                              QTableWidgetItem, QFrame, QLabel, QMessageBox,
-                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout)
-from PyQt5.QtCore import Qt
+                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout, QDateEdit, QFileDialog)
+from PyQt5.QtCore import Qt, QDate
 
 # Disable SSL warnings using warnings module
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+# Mountain Time timezone
+MOUNTAIN_TZ = pytz.timezone('US/Mountain')
+
+def convert_to_mountain(dt):
+    """Convert datetime to Mountain Time, adding offset to fix API time discrepancy"""
+    # Add 7 hours to fix the time discrepancy observed in the API data
+    corrected_dt = dt + timedelta(hours=7)
+    
+    if corrected_dt.tzinfo is None:
+        # Assume it's now in Mountain Time after correction
+        return MOUNTAIN_TZ.localize(corrected_dt)
+    else:
+        # Convert to Mountain Time if it has timezone info
+        return corrected_dt.astimezone(MOUNTAIN_TZ)
 
 
 class ParticleDataViewer(QMainWindow):
@@ -157,10 +174,14 @@ class ParticleDataViewer(QMainWindow):
                     if isinstance(timestamp, str):
                         from datetime import datetime
                         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                        timestamp_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamp_str = dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
                     else:
                         dt = datetime.fromtimestamp(timestamp)
-                        timestamp_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamp_str = dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
                 except:
                     timestamp_str = str(timestamp)
             else:
@@ -224,11 +245,45 @@ class HistoricalDataWindow(QMainWindow):
         # Control panel
         control_layout = QHBoxLayout()
         
-        # Refresh button
-        refresh_button = QPushButton("Refresh Historical Data")
-        refresh_button.clicked.connect(self.load_historical_data)
-        refresh_button.setMaximumWidth(200)
-        control_layout.addWidget(refresh_button)
+        # Date range controls
+        date_label = QLabel("Date Range:")
+        control_layout.addWidget(date_label)
+        
+        start_date_label = QLabel("Start:")
+        control_layout.addWidget(start_date_label)
+        
+        # Set default to one week ago
+        default_start_date = QDate.currentDate().addDays(-7)
+        self.start_date_edit = QDateEdit(default_start_date)
+        self.start_date_edit.setCalendarPopup(True)
+        self.start_date_edit.setMaximumWidth(120)
+        self.start_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.start_date_edit)
+        
+        end_date_label = QLabel("End:")
+        control_layout.addWidget(end_date_label)
+        
+        # Set default to today
+        default_end_date = QDate.currentDate()
+        self.end_date_edit = QDateEdit(default_end_date)
+        self.end_date_edit.setCalendarPopup(True)
+        self.end_date_edit.setMaximumWidth(120)
+        self.end_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.end_date_edit)
+        
+        # Add some spacing
+        control_layout.addWidget(QLabel("  "))
+        
+        # CSV Export buttons
+        export_selected_button = QPushButton("Export Selected Data")
+        export_selected_button.clicked.connect(self.export_selected_data)
+        export_selected_button.setMaximumWidth(150)
+        control_layout.addWidget(export_selected_button)
+        
+        export_all_button = QPushButton("Export All Data")
+        export_all_button.clicked.connect(self.export_all_data)
+        export_all_button.setMaximumWidth(150)
+        control_layout.addWidget(export_all_button)
         
         # PM Size checkboxes
         pm_label = QLabel("PM Sizes to Graph (ft³):")
@@ -325,8 +380,86 @@ class HistoricalDataWindow(QMainWindow):
         splitter.setSizes([800, 800])
         
         # Store historical data for graphing
-        self.historical_data = []
+        self.historical_data = []  # All data from API
+        self.filtered_data = []    # Filtered data based on date range
         
+    def on_date_range_changed(self):
+        """Handle date range changes"""
+        self.filter_data_by_date_range()
+        self.populate_historical_table(self.filtered_data)
+        self.update_graph()
+    
+    def filter_data_by_date_range(self):
+        """Filter historical data based on selected date range"""
+        start_date = self.start_date_edit.date().toPyDate()
+        end_date = self.end_date_edit.date().toPyDate()
+        
+        # Add one day to end_date to include the entire end day
+        end_date = end_date + timedelta(days=1)
+        
+        self.filtered_data = []
+        
+        for record in self.historical_data:
+            # Extract timestamp from record
+            record_datetime = self.extract_timestamp_from_record(record)
+            
+            if record_datetime:
+                record_date = record_datetime.date()
+                if start_date <= record_date < end_date:
+                    self.filtered_data.append(record)
+    
+    def extract_timestamp_from_record(self, record):
+        """Extract datetime object from a record"""
+        timestamp_value = None
+        
+        # Check for standard timestamp formats first
+        if "timestamp_iso" in record:
+            timestamp_value = record["timestamp_iso"]
+        elif "timestamp" in record:
+            timestamp_value = record["timestamp"]
+        else:
+            # Look for timestamp in raw data
+            for key, value in record.items():
+                if isinstance(value, str) and 'T' in value and ':' in value:
+                    timestamp_value = value
+                    break
+                elif isinstance(key, str) and 'T' in key and ':' in key:
+                    timestamp_value = key
+                    break
+            
+            # If still no timestamp, try Unix timestamp
+            if not timestamp_value:
+                for key, value in record.items():
+                    if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
+                        try:
+                            timestamp_value = float(key)
+                            break
+                        except:
+                            pass
+                    elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
+                        try:
+                            timestamp_value = float(value)
+                            break
+                        except:
+                            pass
+        
+        if timestamp_value is not None:
+            try:
+                if isinstance(timestamp_value, str):
+                    # Try ISO format
+                    if 'T' in timestamp_value:
+                        return datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                    else:
+                        # Try to parse as Unix timestamp string
+                        return datetime.fromtimestamp(float(timestamp_value))
+                else:
+                    # Numeric timestamp
+                    return datetime.fromtimestamp(float(timestamp_value))
+            except (ValueError, TypeError, OSError):
+                pass
+        
+        return None
+    
     def load_historical_data(self):
         """Load historical data from the API"""
         try:
@@ -340,15 +473,17 @@ class HistoricalDataWindow(QMainWindow):
             # Handle different response formats
             if data.get("status") == "success" and "historical_data" in data:
                 self.historical_data = data["historical_data"]
-                self.populate_historical_table(self.historical_data)
-                self.update_graph()
             elif "historical_data" in data:  # Handle response without status field
                 self.historical_data = data["historical_data"]
-                self.populate_historical_table(self.historical_data)
-                self.update_graph()
             else:
                 QMessageBox.warning(self, "No Data", 
                                    f"No historical data found for {self.room_name}/{self.sensor_number}")
+                return
+            
+            # Filter data and update displays
+            self.filter_data_by_date_range()
+            self.populate_historical_table(self.filtered_data)
+            self.update_graph()
                 
         except requests.exceptions.ConnectionError:
             QMessageBox.critical(self, "Connection Error", 
@@ -366,32 +501,9 @@ class HistoricalDataWindow(QMainWindow):
             row_position = self.hist_table.rowCount()
             self.hist_table.insertRow(row_position)
             
-            # Try to extract timestamp information
-            # Look for timestamp patterns in the data
-            timestamp_unix = None
-            timestamp_iso = None
-            
-            # Check for various timestamp formats in the record
-            for key, value in record.items():
-                if isinstance(key, str):
-                    # Look for ISO timestamp format
-                    if 'T' in key and (':' in key or '-' in key):
-                        timestamp_iso = key
-                    # Look for Unix timestamp (numeric string)
-                    elif key.replace('.', '').isdigit() and len(key) >= 10:
-                        timestamp_unix = key
-                        
-            # Also check values for timestamp patterns
-            for key, value in record.items():
-                if isinstance(value, str):
-                    if 'T' in value and (':' in value or '-' in value):
-                        timestamp_iso = value
-                    elif str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
-                        timestamp_unix = value
-            
-            # Use standard column mapping if available, otherwise try to parse the raw data
-            if 'timestamp' in record:
-                # Standard format
+            # Check for standard data structure first
+            if any(key in record for key in ['timestamp', 'timestamp_iso', 'num_pm0_5_ft3', 'mass_pm1']):
+                # Standard structured format
                 columns_data = [
                     record.get("timestamp", "N/A"),
                     record.get("timestamp_iso", "N/A"),
@@ -421,8 +533,41 @@ class HistoricalDataWindow(QMainWindow):
                     record.get("mass_pm10_ug_m3", "N/A")
                 ]
             else:
-                # Raw particle size data format - try to extract meaningful values
-                # This is for CSV files with particle sizes as column headers
+                # Raw CSV format - keys are timestamps and particle sizes
+                # Try to extract timestamp information
+                timestamp_unix = None
+                timestamp_iso = None
+                
+                # Look for timestamp patterns in keys
+                for key in record.keys():
+                    if isinstance(key, str):
+                        # Look for ISO timestamp format in keys
+                        if 'T' in key and (':' in key or '-' in key) and len(key) > 15:
+                            timestamp_iso = key
+                        # Look for Unix timestamp (numeric string)
+                        elif key.replace('.', '').isdigit() and len(key) >= 10:
+                            try:
+                                # Validate it's a reasonable Unix timestamp
+                                ts = float(key)
+                                if ts > 1000000000:  # After 2001
+                                    timestamp_unix = key
+                            except:
+                                pass
+                
+                # Look for timestamp patterns in values if not found in keys
+                if not timestamp_unix and not timestamp_iso:
+                    for key, value in record.items():
+                        if isinstance(value, str):
+                            if 'T' in value and (':' in value or '-' in value) and len(value) > 15:
+                                timestamp_iso = value
+                            elif value.replace('.', '').isdigit() and len(value) >= 10:
+                                try:
+                                    ts = float(value)
+                                    if ts > 1000000000:
+                                        timestamp_unix = value
+                                except:
+                                    pass
+                
                 columns_data = [
                     timestamp_unix if timestamp_unix else "N/A",
                     timestamp_iso if timestamp_iso else "N/A"
@@ -433,12 +578,14 @@ class HistoricalDataWindow(QMainWindow):
                 particle_measurements = {}
                 for key, value in record.items():
                     try:
+                        # Skip timestamp keys we already processed
+                        if key == timestamp_unix or key == timestamp_iso:
+                            continue
                         # Skip non-numeric keys that are identifiers
-                        if key in ['room_name', 'sensor_number'] or isinstance(key, str) and not key.replace('.', '').isdigit():
-                            if key not in ['room_name', 'sensor_number'] and 'T' not in key and len(key) > 10:
-                                continue
+                        if key in ['room_name', 'sensor_number']:
+                            continue
                         
-                        # Try to parse as float for particle size
+                        # Try to parse key as particle size
                         if isinstance(key, str) and key.replace('.', '').isdigit():
                             size = float(key)
                             if 0.1 <= size <= 50.0:  # Reasonable particle size range in micrometers
@@ -480,7 +627,13 @@ class HistoricalDataWindow(QMainWindow):
     
     def update_graph(self):
         """Update the graph based on selected PM sizes"""
-        if not self.historical_data:
+        if not self.filtered_data:
+            # Clear the plot if no data
+            self.ax.clear()
+            self.ax.set_title("No Data Available for Selected Date Range")
+            self.ax.set_xlabel("Time")
+            self.ax.set_ylabel("Particle Count (ft³)")
+            self.canvas.draw()
             return
         
         # Get checked PM sizes
@@ -516,7 +669,7 @@ class HistoricalDataWindow(QMainWindow):
             timestamps = []
             values = []
             
-            for record in self.historical_data:
+            for record in self.filtered_data:
                 # Try to extract timestamp
                 timestamp_value = None
                 
@@ -570,8 +723,10 @@ class HistoricalDataWindow(QMainWindow):
                         else:
                             # Numeric timestamp
                             dt = datetime.fromtimestamp(float(timestamp_value))
-                            
-                        timestamps.append(dt)
+                        
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamps.append(dt_mountain)
                         values.append(float(param_value))
                     except (ValueError, TypeError, OSError):
                         continue
@@ -599,7 +754,7 @@ class HistoricalDataWindow(QMainWindow):
         
         # Set title and labels
         self.ax.set_title("PM Particle Concentrations Over Time")
-        self.ax.set_xlabel("Time")
+        self.ax.set_xlabel("Time (Mountain Time)")
         self.ax.set_ylabel("Particle Count (ft³)")
         self.ax.grid(True, alpha=0.3)
         
@@ -613,6 +768,141 @@ class HistoricalDataWindow(QMainWindow):
         # Adjust layout and refresh
         self.figure.tight_layout()
         self.canvas.draw()
+    
+    def export_selected_data(self):
+        """Export currently filtered/displayed data to CSV"""
+        if not self.filtered_data:
+            QMessageBox.information(self, "No Data", "No data available to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export Selected Data", 
+            f"particle_data_{self.room_name}_{self.sensor_number}_selected.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if file_path:
+            self._export_to_csv(self.filtered_data, file_path)
+    
+    def export_all_data(self):
+        """Export all historical data to CSV"""
+        if not self.historical_data:
+            QMessageBox.information(self, "No Data", "No data available to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export All Data", 
+            f"particle_data_{self.room_name}_{self.sensor_number}_all.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if file_path:
+            self._export_to_csv(self.historical_data, file_path)
+    
+    def _export_to_csv(self, data, file_path):
+        """Helper method to write data to CSV file"""
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write header
+                writer.writerow(self.hist_columns)
+                
+                # Write data rows
+                for record in data:
+                    row_data = []
+                    
+                    # Check for standard data structure first
+                    if any(key in record for key in ['timestamp', 'timestamp_iso', 'num_pm0_5_ft3', 'mass_pm1']):
+                        # Standard structured format
+                        columns_data = [
+                            record.get("timestamp", ""),
+                            record.get("timestamp_iso", ""),
+                            record.get("mass_pm1", ""),
+                            record.get("mass_pm2_5", ""),
+                            record.get("mass_pm4", ""),
+                            record.get("mass_pm10", ""),
+                            record.get("num_pm0_5", ""),
+                            record.get("num_pm1", ""),
+                            record.get("num_pm2_5", ""),
+                            record.get("num_pm4", ""),
+                            record.get("num_pm10", ""),
+                            record.get("typical_particle_size_um", ""),
+                            record.get("num_pm0_5_ft3", ""),
+                            record.get("num_pm1_ft3", ""),
+                            record.get("num_pm2_5_ft3", ""),
+                            record.get("num_pm4_ft3", ""),
+                            record.get("num_pm10_ft3", ""),
+                            record.get("bin_0_3_to_0_5", ""),
+                            record.get("bin_0_5_to_1_0", ""),
+                            record.get("bin_1_0_to_2_5", ""),
+                            record.get("bin_2_5_to_4_0", ""),
+                            record.get("bin_4_0_to_10", ""),
+                            record.get("mass_pm1_ug_m3", ""),
+                            record.get("mass_pm2_5_ug_m3", ""),
+                            record.get("mass_pm4_ug_m3", ""),
+                            record.get("mass_pm10_ug_m3", "")
+                        ]
+                    else:
+                        # Raw CSV format handling
+                        timestamp_unix = None
+                        timestamp_iso = None
+                        
+                        # Look for timestamp patterns
+                        for key in record.keys():
+                            if isinstance(key, str):
+                                if 'T' in key and (':' in key or '-' in key) and len(key) > 15:
+                                    timestamp_iso = key
+                                elif key.replace('.', '').isdigit() and len(key) >= 10:
+                                    try:
+                                        ts = float(key)
+                                        if ts > 1000000000:
+                                            timestamp_unix = key
+                                    except:
+                                        pass
+                        
+                        columns_data = [timestamp_unix or "", timestamp_iso or ""]
+                        
+                        # Add particle data
+                        particle_measurements = {}
+                        for key, value in record.items():
+                            try:
+                                if key == timestamp_unix or key == timestamp_iso:
+                                    continue
+                                if key in ['room_name', 'sensor_number']:
+                                    continue
+                                if isinstance(key, str) and key.replace('.', '').isdigit():
+                                    size = float(key)
+                                    if 0.1 <= size <= 50.0:
+                                        particle_measurements[size] = value
+                            except (ValueError, TypeError):
+                                continue
+                        
+                        sorted_measurements = sorted(particle_measurements.items())
+                        remaining_cols = len(self.hist_columns) - 2
+                        for i in range(remaining_cols):
+                            if i < len(sorted_measurements):
+                                size, value = sorted_measurements[i]
+                                columns_data.append(f"{size}μm: {value}")
+                            else:
+                                columns_data.append("")
+                    
+                    # Clean the data for CSV
+                    clean_row = []
+                    for value in columns_data:
+                        if value is None or value == "N/A":
+                            clean_row.append("")
+                        else:
+                            clean_row.append(str(value))
+                    
+                    writer.writerow(clean_row)
+            
+            QMessageBox.information(self, "Export Complete", f"Data exported successfully to:\n{file_path}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Error exporting data to CSV:\n{str(e)}")
 
 
 def main():
