@@ -11,11 +11,12 @@ import json
 from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTableWidget, 
                              QTableWidgetItem, QFrame, QLabel, QMessageBox,
-                             QHeaderView, QComboBox, QSplitter)
+                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout)
 from PyQt5.QtCore import Qt
 
 # Disable SSL warnings using warnings module
@@ -229,25 +230,31 @@ class HistoricalDataWindow(QMainWindow):
         refresh_button.setMaximumWidth(200)
         control_layout.addWidget(refresh_button)
         
-        # Graph parameter selection
-        graph_label = QLabel("Graph Parameter:")
-        control_layout.addWidget(graph_label)
+        # PM Size checkboxes
+        pm_label = QLabel("PM Sizes to Graph (ft³):")
+        control_layout.addWidget(pm_label)
         
-        self.graph_param_combo = QComboBox()
-        self.graph_param_combo.addItems([
-            "PM1 Mass", "PM2.5 Mass", "PM4 Mass", "PM10 Mass",
-            "PM0.5 Count", "PM1 Count", "PM2.5 Count", "PM4 Count", "PM10 Count",
-            "PM0.5 (ft³)", "PM1 (ft³)", "PM2.5 (ft³)", "PM4 (ft³)", "PM10 (ft³)",
-            "PM1 (μg/m³)", "PM2.5 (μg/m³)", "PM4 (μg/m³)", "PM10 (μg/m³)"
-        ])
-        self.graph_param_combo.setCurrentText("PM2.5 (μg/m³)")
-        # Debug: Add a debug slot to verify signal connection
-        def debug_combo_changed(text):
-            print(f"DEBUG: Combo box changed to: {text}")
-            self.update_graph()
+        # Create checkbox layout
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout()
+        checkbox_widget.setLayout(checkbox_layout)
         
-        self.graph_param_combo.currentTextChanged.connect(debug_combo_changed)
-        control_layout.addWidget(self.graph_param_combo)
+        # Create checkboxes for each PM size
+        self.pm_checkboxes = {}
+        pm_sizes = [("PM0.5", "num_pm0_5_ft3", True), 
+                    ("PM1", "num_pm1_ft3", True), 
+                    ("PM2.5", "num_pm2_5_ft3", True), 
+                    ("PM4", "num_pm4_ft3", True), 
+                    ("PM10", "num_pm10_ft3", True)]
+        
+        for display_name, data_key, default_checked in pm_sizes:
+            checkbox = QCheckBox(display_name)
+            checkbox.setChecked(default_checked)
+            checkbox.stateChanged.connect(self.update_graph)
+            self.pm_checkboxes[data_key] = checkbox
+            checkbox_layout.addWidget(checkbox)
+        
+        control_layout.addWidget(checkbox_widget)
         
         control_layout.addStretch()
         main_layout.addLayout(control_layout)
@@ -304,6 +311,12 @@ class HistoricalDataWindow(QMainWindow):
         self.figure = Figure(figsize=(8, 6), dpi=80)
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
+        
+        # Add navigation toolbar for zoom, pan, and reset functionality
+        self.toolbar = NavigationToolbar(self.canvas, graph_widget)
+        self.toolbar.setStyleSheet("QToolBar QToolButton { background-color: white; }")
+        
+        graph_layout.addWidget(self.toolbar)
         graph_layout.addWidget(self.canvas)
         
         splitter.addWidget(graph_widget)
@@ -466,43 +479,40 @@ class HistoricalDataWindow(QMainWindow):
                 pass
     
     def update_graph(self):
-        """Update the graph based on selected parameter"""
-        try:
-            print(f"DEBUG: update_graph() called")  # Debug line
-            
-            if not self.historical_data:
-                print("DEBUG: No historical data available")  # Debug line
-                return
-                
-            selected_param = self.graph_param_combo.currentText()
-            print(f"DEBUG: Selected parameter: {selected_param}")  # Debug line
-            
-            # Map display names to data keys
-            param_map = {
-                "PM1 Mass": "mass_pm1",
-                "PM2.5 Mass": "mass_pm2_5", 
-                "PM4 Mass": "mass_pm4",
-                "PM10 Mass": "mass_pm10",
-                "PM0.5 Count": "num_pm0_5",
-                "PM1 Count": "num_pm1",
-                "PM2.5 Count": "num_pm2_5",
-                "PM4 Count": "num_pm4",
-                "PM10 Count": "num_pm10",
-                "PM0.5 (ft³)": "num_pm0_5_ft3",
-                "PM1 (ft³)": "num_pm1_ft3",
-                "PM2.5 (ft³)": "num_pm2_5_ft3",
-                "PM4 (ft³)": "num_pm4_ft3",
-                "PM10 (ft³)": "num_pm10_ft3",
-                "PM1 (μg/m³)": "mass_pm1_ug_m3",
-                "PM2.5 (μg/m³)": "mass_pm2_5_ug_m3",
-                "PM4 (μg/m³)": "mass_pm4_ug_m3",
-                "PM10 (μg/m³)": "mass_pm10_ug_m3"
-            }
-            
-            data_key = param_map.get(selected_param)
-            print(f"DEBUG: Data key: {data_key}")  # Debug line
-            
-            # Extract timestamps and values
+        """Update the graph based on selected PM sizes"""
+        if not self.historical_data:
+            return
+        
+        # Get checked PM sizes
+        checked_params = []
+        for data_key, checkbox in self.pm_checkboxes.items():
+            if checkbox.isChecked():
+                checked_params.append(data_key)
+        
+        if not checked_params:
+            # Clear the plot if no parameters selected
+            self.ax.clear()
+            self.ax.set_title("No PM Sizes Selected")
+            self.ax.set_xlabel("Time")
+            self.ax.set_ylabel("Particle Count (ft³)")
+            self.canvas.draw()
+            return
+        
+        # Fixed color mapping for each PM size to maintain consistency
+        color_map = {
+            "num_pm0_5_ft3": 'blue',
+            "num_pm1_ft3": 'red', 
+            "num_pm2_5_ft3": 'green',
+            "num_pm4_ft3": 'orange',
+            "num_pm10_ft3": 'purple'
+        }
+        
+        # Clear the plot
+        self.ax.clear()
+        
+        # Process each checked parameter
+        legend_labels = []
+        for data_key in checked_params:
             timestamps = []
             values = []
             
@@ -541,23 +551,11 @@ class HistoricalDataWindow(QMainWindow):
                                 except:
                                     pass
                 
-                # Try to extract value for the selected parameter
+                # Try to extract value for the current parameter
                 param_value = None
                 
-                if data_key and data_key in record:
+                if data_key in record:
                     param_value = record[data_key]
-                else:
-                    # For raw data format, try to find a reasonable value to plot
-                    # For now, let's plot the first numeric particle measurement we can find
-                    for key, value in record.items():
-                        try:
-                            if isinstance(key, str) and key.replace('.', '').isdigit():
-                                size = float(key)
-                                if 0.1 <= size <= 50.0:  # Reasonable particle size range
-                                    param_value = float(value) if value is not None else None
-                                    break
-                        except (ValueError, TypeError):
-                            continue
                 
                 # Process timestamp and add to data if we have both timestamp and value
                 if timestamp_value is not None and param_value is not None:
@@ -578,44 +576,43 @@ class HistoricalDataWindow(QMainWindow):
                     except (ValueError, TypeError, OSError):
                         continue
             
-            print(f"DEBUG: Found {len(timestamps)} data points")  # Debug line
-            
-            if not timestamps or not values:
-                # Clear the plot if no data
-                print("DEBUG: No valid data points found, clearing plot")  # Debug line
-                self.ax.clear()
-                self.ax.set_title(f"No Data Available for {selected_param}")
-                self.ax.set_xlabel("Time")
-                self.ax.set_ylabel(selected_param)
-                self.canvas.draw()
-                return
+            # Plot this parameter if we have data
+            if timestamps and values:
+                # Sort by timestamp
+                sorted_data = sorted(zip(timestamps, values))
+                timestamps, values = zip(*sorted_data)
                 
-            # Sort by timestamp
-            sorted_data = sorted(zip(timestamps, values))
-            timestamps, values = zip(*sorted_data)
-            
-            # Clear and plot
-            print("DEBUG: Updating plot with new data")  # Debug line
-            self.ax.clear()
-            self.ax.plot(timestamps, values, 'b-o', linewidth=2, markersize=4)
-            self.ax.set_title(f"{selected_param} Over Time")
-            self.ax.set_xlabel("Time")
-            self.ax.set_ylabel(selected_param)
-            self.ax.grid(True, alpha=0.3)
-            
-            # Format x-axis
-            self.figure.autofmt_xdate()
-            
-            # Adjust layout and refresh
-            self.figure.tight_layout()
-            self.canvas.draw()
-            print("DEBUG: Graph update completed successfully")  # Debug line
-            
-        except Exception as e:
-            print(f"ERROR in update_graph: {str(e)}")  # Debug line
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(self, "Graph Update Error", f"Error updating graph: {str(e)}")
+                # Get display name for legend
+                display_name = {
+                    "num_pm0_5_ft3": "PM0.5",
+                    "num_pm1_ft3": "PM1", 
+                    "num_pm2_5_ft3": "PM2.5",
+                    "num_pm4_ft3": "PM4",
+                    "num_pm10_ft3": "PM10"
+                }.get(data_key, data_key)
+                
+                # Plot line
+                color = color_map[data_key]
+                self.ax.plot(timestamps, values, color=color, linewidth=2, marker='o', 
+                           markersize=3, label=display_name, alpha=0.8)
+                legend_labels.append(display_name)
+        
+        # Set title and labels
+        self.ax.set_title("PM Particle Concentrations Over Time")
+        self.ax.set_xlabel("Time")
+        self.ax.set_ylabel("Particle Count (ft³)")
+        self.ax.grid(True, alpha=0.3)
+        
+        # Add legend if we have data
+        if legend_labels:
+            self.ax.legend(loc='upper right')
+        
+        # Format x-axis
+        self.figure.autofmt_xdate()
+        
+        # Adjust layout and refresh
+        self.figure.tight_layout()
+        self.canvas.draw()
 
 
 def main():
