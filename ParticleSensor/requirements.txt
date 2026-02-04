@@ -2,3 +2,5 @@ requests
 PyQt5
 matplotlib
 numpy
+PySide2
+tkinter
