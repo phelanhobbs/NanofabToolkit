@@ -283,3 +283,81 @@ class ParticleSensor:
             return sensors
         except Exception as e:
             raise Exception(f"Failed to get sensor list: {str(e)}")
+    
+    def normalize_room_name(self, name):
+        """Normalize a room name for matching: take first line, remove spaces, lowercase"""
+        first_line = name.split('\n')[0].strip()
+        return first_line.replace(' ', '').lower()
+    
+    def check_data_freshness(self, timestamp, max_age_minutes=30):
+        """Check if data is fresh (within the specified max age)"""
+        if not timestamp:
+            return False
+        
+        try:
+            if isinstance(timestamp, str):
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                dt_mountain = convert_to_mountain(dt)
+            else:
+                dt = datetime.fromtimestamp(timestamp)
+                dt_mountain = convert_to_mountain(dt)
+            
+            now = datetime.now(MOUNTAIN_TZ)
+            age = now - dt_mountain
+            return age <= timedelta(minutes=max_age_minutes)
+        except:
+            return False
+    
+    def has_particles(self, measurement):
+        """Check if measurement shows any particle counts > 0"""
+        try:
+            converted = measurement.get('converted_values', {})
+            num_conc = converted.get('number_concentrations_ft3', {})
+            
+            pm0_5 = float(num_conc.get('pm0_5', 0) or 0)
+            pm1 = float(num_conc.get('pm1', 0) or 0)
+            pm4 = float(num_conc.get('pm4', 0) or 0)
+            pm10 = float(num_conc.get('pm10', 0) or 0)
+            
+            return pm0_5 > 0 or pm1 > 0 or pm4 > 0 or pm10 > 0
+        except (ValueError, TypeError):
+            return False
+    
+    def normalize_room_name(self, name):
+        """Normalize a room name for matching: take first line, remove spaces, lowercase"""
+        first_line = name.split('\n')[0].strip()
+        return first_line.replace(' ', '').lower()
+    
+    def check_data_freshness(self, timestamp, max_age_minutes=30):
+        """Check if data is fresh (within the specified max age)"""
+        if not timestamp:
+            return False
+        
+        try:
+            if isinstance(timestamp, str):
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                dt_mountain = convert_to_mountain(dt)
+            else:
+                dt = datetime.fromtimestamp(timestamp)
+                dt_mountain = convert_to_mountain(dt)
+            
+            now = datetime.now(MOUNTAIN_TZ)
+            age = now - dt_mountain
+            return age <= timedelta(minutes=max_age_minutes)
+        except:
+            return False
+    
+    def has_particles(self, measurement):
+        """Check if measurement shows any particle counts > 0"""
+        try:
+            converted = measurement.get('converted_values', {})
+            num_conc = converted.get('number_concentrations_ft3', {})
+            
+            pm0_5 = float(num_conc.get('pm0_5', 0) or 0)
+            pm1 = float(num_conc.get('pm1', 0) or 0)
+            pm4 = float(num_conc.get('pm4', 0) or 0)
+            pm10 = float(num_conc.get('pm10', 0) or 0)
+            
+            return pm0_5 > 0 or pm1 > 0 or pm4 > 0 or pm10 > 0
+        except (ValueError, TypeError):
+            return False

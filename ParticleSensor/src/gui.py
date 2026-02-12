@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTableWidgetItem, QFrame, QLabel, QMessageBox,
                              QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout, QDateEdit, QFileDialog)
 from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QMouseEvent
 
 # Disable SSL warnings using warnings module
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -40,10 +41,34 @@ def convert_to_mountain(dt):
         return corrected_dt.astimezone(MOUNTAIN_TZ)
 
 
+class RoomFrame(QFrame):
+    """Custom QFrame for room color management"""
+    def __init__(self, parent, room_name, initial_color="#FFFFE0"):
+        super().__init__()
+        self.parent = parent
+        self.room_name = room_name
+        self.state = "yellow"  # Track current state: yellow, red, green
+        self.colors = {
+            "yellow": "#FFFFE0",
+            "red": "#FF6B6B",
+            "green": "#4ECDC4"
+        }
+        self.setFrameStyle(QFrame.Box)
+        self.setStyleSheet(f"background-color: {initial_color}; border: 0.5px solid #666;")
+        
+    def set_color_state(self, state):
+        """Set the color state programmatically"""
+        if state in self.colors:
+            self.state = state
+            new_color = self.colors[self.state]
+            self.setStyleSheet(f"background-color: {new_color}; border: 0.5px solid #666;")
+
+
 class ParticleDataViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.api_url = "https://nfhistory.nanofab.utah.edu/particle-data"
+        self.room_frames = {}  # Track room frames for state management
         self.init_ui()
         
     def init_ui(self):
@@ -69,15 +94,85 @@ class ParticleDataViewer(QMainWindow):
         content_layout = QHBoxLayout()
         main_layout.addLayout(content_layout)
         
-        # Left half - Empty box (placeholder for future use)
+        # Left half - Cleanroom Layout Map
         left_frame = QFrame()
         left_frame.setFrameStyle(QFrame.Box | QFrame.Raised)
         left_frame.setLineWidth(2)
         left_layout = QVBoxLayout()
         left_frame.setLayout(left_layout)
-        left_label = QLabel("Reserved Area")
-        left_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(left_label)
+        
+        # Add title for the map
+        map_title = QLabel("Cleanroom Layout")
+        map_title.setAlignment(Qt.AlignCenter)
+        map_title.setStyleSheet("font-weight: bold; font-size: 14px; margin: 5px;")
+        left_layout.addWidget(map_title)
+        
+        # Create room layout widget
+        room_widget = QWidget()
+        room_layout = QGridLayout()
+        room_widget.setLayout(room_layout)
+        
+        # Define room data with positions matching actual layout
+        rooms = [
+            # Top row - main cleanroom area
+            {"name": "Gas/Chem\nStorage", "row": 0, "col": 1, "rowspan": 1, "colspan": 2, "color": "#FFFFE0"},
+            {"name": "Chase", "row": 0, "col": 3, "rowspan": 1, "colspan": 6, "color": "#FFFFE0"},
+            
+            # Second row - Lab C above Lab B
+            {"name": "Lab C\n2010N", "row": 1, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Main bay row - Bays A through G
+            {"name": "Bay A\n2025N", "row": 2, "col": 1, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay B\n2022N", "row": 2, "col": 2, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay C\n2020N", "row": 2, "col": 3, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay D\n2018N", "row": 2, "col": 4, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay E\n2016N", "row": 2, "col": 5, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay F\n2014N", "row": 2, "col": 6, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay G\n2012N", "row": 2, "col": 7, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Right side labs
+            {"name": "Lab B\n2008N", "row": 2, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Lab A\n2006N", "row": 3, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Bottom row
+            {"name": "Bay M\nMetrology\n2026N", "row": 4, "col": 1, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Clean Conf\n2002N", "row": 4, "col": 2, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Hallway", "row": 4, "col": 3, "rowspan": 1, "colspan": 5, "color": "#FFFFE0"},
+            {"name": "Gowning\nRoom\n2221", "row": 4, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"}
+        ]
+        
+        # Create room squares
+        for room in rooms:
+            room_frame = RoomFrame(self, room['name'], room['color'])
+            
+            # Store reference to room frame
+            self.room_frames[room['name']] = room_frame
+            
+            room_label = QLabel(room['name'])
+            room_label.setAlignment(Qt.AlignCenter)
+            room_label.setStyleSheet("""
+                font-size: 8px; 
+                font-weight: bold; 
+                padding: 2px;
+                color: white;
+                background-color: rgba(0, 0, 0, 180);
+                border-radius: 3px;
+                margin: 2px;
+            """)
+            
+            room_frame_layout = QVBoxLayout()
+            room_frame_layout.addWidget(room_label)
+            room_frame.setLayout(room_frame_layout)
+            room_frame.setMinimumSize(40, 30)
+            
+            room_layout.addWidget(room_frame, room['row'], room['col'], 
+                                room['rowspan'], room['colspan'])
+        
+        # Set spacing and margins
+        room_layout.setSpacing(2)
+        room_layout.setContentsMargins(5, 5, 5, 5)
+        
+        left_layout.addWidget(room_widget)
         content_layout.addWidget(left_frame, 1)  # stretch factor of 1
         
         # Right half - Table for particle data
@@ -130,6 +225,9 @@ class ParticleDataViewer(QMainWindow):
             
             # Populate table with data
             self.populate_table(data)
+            
+            # Update cleanroom layout colors based on sensor data
+            self.update_room_colors(data)
             
         except requests.exceptions.ConnectionError:
             QMessageBox.critical(self, "Connection Error", 
@@ -199,6 +297,85 @@ class ParticleDataViewer(QMainWindow):
             self.table.setItem(row_position, 6, QTableWidgetItem(str(num_conc.get("pm4", "N/A"))))
             self.table.setItem(row_position, 7, QTableWidgetItem(str(num_conc.get("pm10", "N/A"))))
     
+    def _normalize_name(self, name):
+        """Normalize a room name for matching: take first line, remove spaces, lowercase"""
+        first_line = name.split('\n')[0].strip()
+        return first_line.replace(' ', '').lower()
+
+    def update_room_colors(self, data):
+        """Update room frame colors based on particle data freshness and values.
+        
+        Yellow = no matching sensor data or stale data (>30 min old)
+        Green  = fresh data with all particle counts at 0
+        Red    = fresh data with any particle count > 0
+        """
+        # Reset all rooms to yellow (disconnected / no data)
+        for room_frame in self.room_frames.values():
+            room_frame.set_color_state("yellow")
+
+        # Extract the sensor list from the API response
+        if isinstance(data, dict) and "sensors" in data:
+            data_list = data["sensors"]
+        elif isinstance(data, list):
+            data_list = data
+        else:
+            data_list = [data]
+
+        # Build lookup: normalized API room_name -> record
+        api_rooms = {}
+        for record in data_list:
+            if isinstance(record, dict):
+                room_name = record.get("room_name", "")
+                normalized = room_name.replace(' ', '').lower()
+                api_rooms[normalized] = record
+
+        now = datetime.now(MOUNTAIN_TZ)
+
+        for layout_name, room_frame in self.room_frames.items():
+            normalized_layout = self._normalize_name(layout_name)
+
+            if normalized_layout not in api_rooms:
+                continue  # No matching sensor data – stays yellow
+
+            record = api_rooms[normalized_layout]
+
+            # --- Parse timestamp ---
+            timestamp = record.get("timestamp")
+            if not timestamp:
+                continue
+
+            try:
+                if isinstance(timestamp, str):
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    dt_mountain = convert_to_mountain(dt)
+                else:
+                    dt = datetime.fromtimestamp(timestamp)
+                    dt_mountain = convert_to_mountain(dt)
+            except Exception:
+                continue
+
+            # --- Check freshness (stale = more than 30 minutes old) ---
+            age = now - dt_mountain
+            if age > timedelta(minutes=30):
+                continue  # Stale data – stays yellow
+
+            # --- Check particle values ---
+            converted = record.get("converted_values", {})
+            num_conc = converted.get("number_concentrations_ft3", {}) if isinstance(converted, dict) else {}
+
+            try:
+                pm0_5 = float(num_conc.get("pm0_5", 0) or 0)
+                pm1   = float(num_conc.get("pm1", 0) or 0)
+                pm4   = float(num_conc.get("pm4", 0) or 0)
+                pm10  = float(num_conc.get("pm10", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if pm0_5 == 0 and pm1 == 0 and pm4 == 0 and pm10 == 0:
+                room_frame.set_color_state("green")
+            else:
+                room_frame.set_color_state("red")
+
     def on_sensor_double_click(self, item):
         """Handle double-click on sensor table item"""
         row = item.row()
