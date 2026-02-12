@@ -312,11 +312,11 @@ class HistoricalDataWindow(QMainWindow):
         control_layout.addWidget(checkbox_widget)
         
         control_layout.addStretch()
-        main_layout.addLayout(control_layout)
+        main_layout.addLayout(control_layout, 0)  # Fixed size - don't expand
         
         # Create horizontal splitter for table and graph
         splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(splitter, 1)  # Expandable - takes all extra space
         
         # Left side - Historical data table
         table_widget = QWidget()
@@ -360,7 +360,7 @@ class HistoricalDataWindow(QMainWindow):
         graph_label = QLabel("Historical Data Graph")
         graph_label.setAlignment(Qt.AlignCenter)
         graph_label.setStyleSheet("font-weight: bold; margin: 5px;")
-        graph_layout.addWidget(graph_label)
+        graph_layout.addWidget(graph_label, 0)  # Fixed size
         
         # Create matplotlib figure and canvas
         self.figure = Figure(figsize=(8, 6), dpi=80)
@@ -371,8 +371,8 @@ class HistoricalDataWindow(QMainWindow):
         self.toolbar = NavigationToolbar(self.canvas, graph_widget)
         self.toolbar.setStyleSheet("QToolBar QToolButton { background-color: white; }")
         
-        graph_layout.addWidget(self.toolbar)
-        graph_layout.addWidget(self.canvas)
+        graph_layout.addWidget(self.toolbar, 0)  # Fixed size
+        graph_layout.addWidget(self.canvas, 1)   # Expandable - takes all extra space
         
         splitter.addWidget(graph_widget)
         
