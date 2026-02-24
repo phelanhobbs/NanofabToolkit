@@ -2,6 +2,7 @@ import argparse
 import csv
 import struct
 import os
+import tempfile
 
 def convertFile(filePath):
     """
@@ -12,12 +13,26 @@ def convertFile(filePath):
     Returns:
     str: Path to the converted CSV file
     """
-    # Open the .denton file in binary mode
-    with open(filePath, 'rb') as f:
-        data = f.read()
+    # Check if file exists
+    if not os.path.exists(filePath):
+        raise FileNotFoundError(f"File does not exist: {filePath}")
+    
+    # Check if file is readable
+    if not os.access(filePath, os.R_OK):
+        raise PermissionError(f"Cannot read file: {filePath}")
+    
+    try:
+        # Open the .denton file in binary mode
+        with open(filePath, 'rb') as f:
+            data = f.read()
+    except Exception as e:
+        raise IOError(f"Failed to read file {filePath}: {str(e)}")
 
-    # Create a new .csv file with the same name
-    csvFilePath = filePath.replace('.dat', '.csv')
+    # Create a new .csv file in the user's temporary directory to avoid permission issues
+    filename_base = os.path.splitext(os.path.basename(filePath))[0]
+    temp_dir = tempfile.gettempdir()
+    csvFilePath = os.path.join(temp_dir, f"{filename_base}.csv")
+    print(f"Debug: CSV will be written to: {csvFilePath}")
     decoded_values = []
 
     # Iterate through the data in 128 byte chunks
@@ -79,10 +94,20 @@ def convertFile(filePath):
         data_rows.append(row)
 
     # Write content to a csv
-    with open(csvFilePath, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(headers)  # Write headers
-        writer.writerows(data_rows)  # Write data rows
+    try:
+        # Check if we can write to the directory
+        csv_dir = os.path.dirname(csvFilePath)
+        if not os.access(csv_dir, os.W_OK):
+            raise PermissionError(f"No write permission for directory: {csv_dir}")
+            
+        print(f"Debug: Writing CSV file with {len(headers)} headers and {len(data_rows)} rows")
+        with open(csvFilePath, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(headers)  # Write headers
+            writer.writerows(data_rows)  # Write data rows
+        print(f"Debug: Successfully wrote CSV file: {csvFilePath}")
+    except Exception as e:
+        raise IOError(f"Failed to write CSV file {csvFilePath}: {str(e)}")
     
     return csvFilePath
 

@@ -3,6 +3,7 @@ from tkinter import filedialog, ttk, messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import os
+import re
 import threading
 from pathlib import Path
 import sys
@@ -45,6 +46,12 @@ class DentonGUI(tk.Tk):
         self.current_file_data = []
         self.current_column = ""
         self.current_log_scale = False
+        
+        # Variables for zoom functionality
+        self.zoom_rect = None
+        self.zooming = False
+        self.original_xlim = None
+        self.original_ylim = None
         
         self.create_widgets()
         
@@ -225,6 +232,17 @@ class DentonGUI(tk.Tk):
         ttk.Button(slider_frame, text="Reset All Files", 
                   command=self.reset_all_offsets).pack(side=tk.LEFT, padx=5)
         
+        # Add zoom instruction frame
+        zoom_instruction_frame = ttk.Frame(graph_frame)
+        zoom_instruction_frame.pack(fill=tk.X, padx=5, pady=(0, 5))
+        
+        ttk.Label(zoom_instruction_frame, 
+                 text="Click and drag on the graph to zoom into a specific area", 
+                 font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(zoom_instruction_frame, text="Reset Zoom", 
+                  command=self.reset_zoom).pack(side=tk.LEFT, padx=10)
+        
         # Create matplotlib figure
         self.figure = plt.Figure(figsize=(8, 6))
         self.ax = self.figure.add_subplot(111)
@@ -232,6 +250,11 @@ class DentonGUI(tk.Tk):
         # Embed matplotlib figure in tkinter
         self.canvas = FigureCanvasTkAgg(self.figure, graph_frame)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Add box zoom functionality
+        self.canvas.mpl_connect('button_press_event', self.on_mouse_press)
+        self.canvas.mpl_connect('button_release_event', self.on_mouse_release)
+        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
         
         # Add navigation toolbar for interactivity
         self.toolbar = NavigationToolbar2Tk(self.canvas, graph_frame)
@@ -319,16 +342,29 @@ class DentonGUI(tk.Tk):
         
         def conversion_thread():
             try:
+                # Debug: Print file path and check if file exists
+                print(f"Converting file: {filename}")
+                print(f"File exists: {os.path.exists(filename)}")
+                print(f"File is file: {os.path.isfile(filename)}")
+                print(f"Current working directory: {os.getcwd()}")
+                
+                # Check if file exists before trying to convert
+                if not os.path.exists(filename):
+                    raise FileNotFoundError(f"File does not exist: {filename}")
+                
                 csv_file = convertFile(filename)
                 file_info['csv_path'] = csv_file
                 
                 # Update UI from main thread
                 self.after(10, lambda: self.conversion_complete(file_info))
             except Exception as e:
+                print(f"Conversion error: {str(e)}")
+                print(f"Error type: {type(e).__name__}")
+                error_msg = f"Error: {str(e)[:50]}..."
                 self.after(10, lambda: self.file_list.item(tree_id, 
                                                          values=(os.path.basename(filename), 
                                                                os.path.splitext(filename)[1], 
-                                                               f"Error: {str(e)[:20]}...")))
+                                                               error_msg)))
         
         threading.Thread(target=conversion_thread).start()
     
@@ -606,6 +642,10 @@ class DentonGUI(tk.Tk):
                 adjusted_times = [t + offset for t in times]
                     
                 filename = os.path.basename(file_info['original_path'])
+                # Shorten label: extract "Run#XXXX" from filenames like "Event_Log_Run#1094 ...dat"
+                run_match = re.search(r'Run#\d+', filename)
+                short_label = run_match.group(0) if run_match else filename
+                
                 color = self.color_cycle[i % len(self.color_cycle)]
                 line_style = line_styles[i % len(line_styles)]
                 marker = markers[i % len(markers)]
@@ -621,7 +661,7 @@ class DentonGUI(tk.Tk):
                 self.ax.plot(
                     adjusted_times, 
                     values, 
-                    label=f"{filename}{duration_text} [offset: {offset:.1f}s]" if offset != 0 else f"{filename}{duration_text}", 
+                    label=f"{short_label}{duration_text} [offset: {offset:.1f}s]" if offset != 0 else f"{short_label}{duration_text}", 
                     color=color,
                     linestyle=line_style,
                     marker=marker,
@@ -674,6 +714,10 @@ class DentonGUI(tk.Tk):
             self.canvas.draw()
             self.canvas.flush_events()
             
+            # Store original limits for zoom reset
+            self.original_xlim = self.ax.get_xlim()
+            self.original_ylim = self.ax.get_ylim()
+            
             if not apply_offset:
                 self.status_var.set(f"Graph generated for {column} with {len(file_data)} files")
             
@@ -682,6 +726,48 @@ class DentonGUI(tk.Tk):
             error_details = traceback.format_exc()
             messagebox.showerror("Error", f"Failed to update plot: {str(e)}\n\n{error_details}")
             self.status_var.set("Error: Plot update failed")
+
+    def on_mouse_press(self, event):
+        """Handle mouse press for box zoom"""
+        if event.inaxes and not self.toolbar.mode:
+            self.zooming = True
+            self.zoom_rect = [event.xdata, event.ydata, event.xdata, event.ydata]
+
+    def on_mouse_release(self, event):
+        """Handle mouse release for box zoom"""
+        if self.zooming and self.zoom_rect and event.inaxes:
+            self.zoom_rect[2] = event.xdata
+            self.zoom_rect[3] = event.ydata
+            self.zooming = False
+            self.apply_zoom()
+        else:
+            self.zooming = False
+
+    def on_mouse_move(self, event):
+        """Handle mouse move for box zoom"""
+        if self.zooming and self.zoom_rect and event.inaxes:
+            self.zoom_rect[2] = event.xdata
+            self.zoom_rect[3] = event.ydata
+
+    def apply_zoom(self):
+        """Apply the zoom rectangle to the axes"""
+        if self.zoom_rect and self.figure.axes:
+            x_min, y_min, x_max, y_max = self.zoom_rect
+            # Only zoom if the drag area is significant (prevent accidental clicks)
+            if abs(x_max - x_min) > 0.5 or abs(y_max - y_min) > 0.001:
+                self.ax.set_xlim(min(x_min, x_max), max(x_min, x_max))
+                self.ax.set_ylim(min(y_min, y_max), max(y_min, y_max))
+                self.canvas.draw()
+
+    def reset_zoom(self):
+        """Reset zoom to original view"""
+        if self.original_xlim and self.original_ylim:
+            self.ax.set_xlim(self.original_xlim)
+            self.ax.set_ylim(self.original_ylim)
+            self.canvas.draw()
+        elif self.figure.axes:
+            self.ax.autoscale()
+            self.canvas.draw()
 
     def on_file_selected(self, event=None):
         """Handle file selection for time offset adjustment"""
