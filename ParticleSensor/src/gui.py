@@ -8,24 +8,67 @@ import sys
 import warnings
 import requests
 import json
-from datetime import datetime
+import csv
+from datetime import datetime, timedelta
+import pytz
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QTableWidget, 
                              QTableWidgetItem, QFrame, QLabel, QMessageBox,
-                             QHeaderView, QComboBox, QSplitter)
-from PyQt5.QtCore import Qt
+                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout, QDateEdit, QFileDialog)
+from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QMouseEvent
 
 # Disable SSL warnings using warnings module
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
+# Mountain Time timezone
+MOUNTAIN_TZ = pytz.timezone('US/Mountain')
+
+def convert_to_mountain(dt):
+    """Convert datetime to Mountain Time, adding offset to fix API time discrepancy"""
+    # Add 7 hours to fix the time discrepancy observed in the API data
+    corrected_dt = dt + timedelta(hours=7)
+    
+    if corrected_dt.tzinfo is None:
+        # Assume it's now in Mountain Time after correction
+        return MOUNTAIN_TZ.localize(corrected_dt)
+    else:
+        # Convert to Mountain Time if it has timezone info
+        return corrected_dt.astimezone(MOUNTAIN_TZ)
+
+
+class RoomFrame(QFrame):
+    """Custom QFrame for room color management"""
+    def __init__(self, parent, room_name, initial_color="#FFFFE0"):
+        super().__init__()
+        self.parent = parent
+        self.room_name = room_name
+        self.state = "yellow"  # Track current state: yellow, red, green
+        self.colors = {
+            "yellow": "#FFFFE0",
+            "red": "#FF6B6B",
+            "green": "#4ECDC4"
+        }
+        self.setFrameStyle(QFrame.Box)
+        self.setStyleSheet(f"background-color: {initial_color}; border: 0.5px solid #666;")
+        
+    def set_color_state(self, state):
+        """Set the color state programmatically"""
+        if state in self.colors:
+            self.state = state
+            new_color = self.colors[self.state]
+            self.setStyleSheet(f"background-color: {new_color}; border: 0.5px solid #666;")
 
 
 class ParticleDataViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.api_url = "https://nfhistory.nanofab.utah.edu/particle-data"
+        self.room_frames = {}  # Track room frames for state management
         self.init_ui()
         
     def init_ui(self):
@@ -51,15 +94,85 @@ class ParticleDataViewer(QMainWindow):
         content_layout = QHBoxLayout()
         main_layout.addLayout(content_layout)
         
-        # Left half - Empty box (placeholder for future use)
+        # Left half - Cleanroom Layout Map
         left_frame = QFrame()
         left_frame.setFrameStyle(QFrame.Box | QFrame.Raised)
         left_frame.setLineWidth(2)
         left_layout = QVBoxLayout()
         left_frame.setLayout(left_layout)
-        left_label = QLabel("Reserved Area")
-        left_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(left_label)
+        
+        # Add title for the map
+        map_title = QLabel("Cleanroom Layout")
+        map_title.setAlignment(Qt.AlignCenter)
+        map_title.setStyleSheet("font-weight: bold; font-size: 14px; margin: 5px;")
+        left_layout.addWidget(map_title)
+        
+        # Create room layout widget
+        room_widget = QWidget()
+        room_layout = QGridLayout()
+        room_widget.setLayout(room_layout)
+        
+        # Define room data with positions matching actual layout
+        rooms = [
+            # Top row - main cleanroom area
+            {"name": "Gas/Chem\nStorage", "row": 0, "col": 1, "rowspan": 1, "colspan": 2, "color": "#FFFFE0"},
+            {"name": "Chase", "row": 0, "col": 3, "rowspan": 1, "colspan": 6, "color": "#FFFFE0"},
+            
+            # Second row - Lab C above Lab B
+            {"name": "Lab C\n2010N", "row": 1, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Main bay row - Bays A through G
+            {"name": "Bay A\n2025N", "row": 2, "col": 1, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay B\n2022N", "row": 2, "col": 2, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay C\n2020N", "row": 2, "col": 3, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay D\n2018N", "row": 2, "col": 4, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay E\n2016N", "row": 2, "col": 5, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay F\n2014N", "row": 2, "col": 6, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Bay G\n2012N", "row": 2, "col": 7, "rowspan": 2, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Right side labs
+            {"name": "Lab B\n2008N", "row": 2, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Lab A\n2006N", "row": 3, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            
+            # Bottom row
+            {"name": "Bay M\nMetrology\n2026N", "row": 4, "col": 1, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Clean Conf\n2002N", "row": 4, "col": 2, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"},
+            {"name": "Hallway", "row": 4, "col": 3, "rowspan": 1, "colspan": 5, "color": "#FFFFE0"},
+            {"name": "Gowning\nRoom\n2221", "row": 4, "col": 8, "rowspan": 1, "colspan": 1, "color": "#FFFFE0"}
+        ]
+        
+        # Create room squares
+        for room in rooms:
+            room_frame = RoomFrame(self, room['name'], room['color'])
+            
+            # Store reference to room frame
+            self.room_frames[room['name']] = room_frame
+            
+            room_label = QLabel(room['name'])
+            room_label.setAlignment(Qt.AlignCenter)
+            room_label.setStyleSheet("""
+                font-size: 8px; 
+                font-weight: bold; 
+                padding: 2px;
+                color: white;
+                background-color: rgba(0, 0, 0, 180);
+                border-radius: 3px;
+                margin: 2px;
+            """)
+            
+            room_frame_layout = QVBoxLayout()
+            room_frame_layout.addWidget(room_label)
+            room_frame.setLayout(room_frame_layout)
+            room_frame.setMinimumSize(40, 30)
+            
+            room_layout.addWidget(room_frame, room['row'], room['col'], 
+                                room['rowspan'], room['colspan'])
+        
+        # Set spacing and margins
+        room_layout.setSpacing(2)
+        room_layout.setContentsMargins(5, 5, 5, 5)
+        
+        left_layout.addWidget(room_widget)
         content_layout.addWidget(left_frame, 1)  # stretch factor of 1
         
         # Right half - Table for particle data
@@ -113,6 +226,9 @@ class ParticleDataViewer(QMainWindow):
             # Populate table with data
             self.populate_table(data)
             
+            # Update cleanroom layout colors based on sensor data
+            self.update_room_colors(data)
+            
         except requests.exceptions.ConnectionError:
             QMessageBox.critical(self, "Connection Error", 
                                f"Could not connect to {self.api_url}\nMake sure the server is running.")
@@ -156,10 +272,14 @@ class ParticleDataViewer(QMainWindow):
                     if isinstance(timestamp, str):
                         from datetime import datetime
                         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                        timestamp_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamp_str = dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
                     else:
                         dt = datetime.fromtimestamp(timestamp)
-                        timestamp_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamp_str = dt_mountain.strftime('%Y-%m-%d %H:%M:%S %Z')
                 except:
                     timestamp_str = str(timestamp)
             else:
@@ -177,6 +297,85 @@ class ParticleDataViewer(QMainWindow):
             self.table.setItem(row_position, 6, QTableWidgetItem(str(num_conc.get("pm4", "N/A"))))
             self.table.setItem(row_position, 7, QTableWidgetItem(str(num_conc.get("pm10", "N/A"))))
     
+    def _normalize_name(self, name):
+        """Normalize a room name for matching: take first line, remove spaces, lowercase"""
+        first_line = name.split('\n')[0].strip()
+        return first_line.replace(' ', '').lower()
+
+    def update_room_colors(self, data):
+        """Update room frame colors based on particle data freshness and values.
+        
+        Yellow = no matching sensor data or stale data (>30 min old)
+        Green  = fresh data with all particle counts at 0
+        Red    = fresh data with any particle count > 0
+        """
+        # Reset all rooms to yellow (disconnected / no data)
+        for room_frame in self.room_frames.values():
+            room_frame.set_color_state("yellow")
+
+        # Extract the sensor list from the API response
+        if isinstance(data, dict) and "sensors" in data:
+            data_list = data["sensors"]
+        elif isinstance(data, list):
+            data_list = data
+        else:
+            data_list = [data]
+
+        # Build lookup: normalized API room_name -> record
+        api_rooms = {}
+        for record in data_list:
+            if isinstance(record, dict):
+                room_name = record.get("room_name", "")
+                normalized = room_name.replace(' ', '').lower()
+                api_rooms[normalized] = record
+
+        now = datetime.now(MOUNTAIN_TZ)
+
+        for layout_name, room_frame in self.room_frames.items():
+            normalized_layout = self._normalize_name(layout_name)
+
+            if normalized_layout not in api_rooms:
+                continue  # No matching sensor data – stays yellow
+
+            record = api_rooms[normalized_layout]
+
+            # --- Parse timestamp ---
+            timestamp = record.get("timestamp")
+            if not timestamp:
+                continue
+
+            try:
+                if isinstance(timestamp, str):
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    dt_mountain = convert_to_mountain(dt)
+                else:
+                    dt = datetime.fromtimestamp(timestamp)
+                    dt_mountain = convert_to_mountain(dt)
+            except Exception:
+                continue
+
+            # --- Check freshness (stale = more than 30 minutes old) ---
+            age = now - dt_mountain
+            if age > timedelta(minutes=30):
+                continue  # Stale data – stays yellow
+
+            # --- Check particle values ---
+            converted = record.get("converted_values", {})
+            num_conc = converted.get("number_concentrations_ft3", {}) if isinstance(converted, dict) else {}
+
+            try:
+                pm0_5 = float(num_conc.get("pm0_5", 0) or 0)
+                pm1   = float(num_conc.get("pm1", 0) or 0)
+                pm4   = float(num_conc.get("pm4", 0) or 0)
+                pm10  = float(num_conc.get("pm10", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+
+            if pm0_5 == 0 and pm1 == 0 and pm4 == 0 and pm10 == 0:
+                room_frame.set_color_state("green")
+            else:
+                room_frame.set_color_state("red")
+
     def on_sensor_double_click(self, item):
         """Handle double-click on sensor table item"""
         row = item.row()
@@ -223,33 +422,78 @@ class HistoricalDataWindow(QMainWindow):
         # Control panel
         control_layout = QHBoxLayout()
         
-        # Refresh button
-        refresh_button = QPushButton("Refresh Historical Data")
-        refresh_button.clicked.connect(self.load_historical_data)
-        refresh_button.setMaximumWidth(200)
-        control_layout.addWidget(refresh_button)
+        # Date range controls
+        date_label = QLabel("Date Range:")
+        control_layout.addWidget(date_label)
         
-        # Graph parameter selection
-        graph_label = QLabel("Graph Parameter:")
-        control_layout.addWidget(graph_label)
+        start_date_label = QLabel("Start:")
+        control_layout.addWidget(start_date_label)
         
-        self.graph_param_combo = QComboBox()
-        self.graph_param_combo.addItems([
-            "PM1 Mass", "PM2.5 Mass", "PM4 Mass", "PM10 Mass",
-            "PM0.5 Count", "PM1 Count", "PM2.5 Count", "PM4 Count", "PM10 Count",
-            "PM0.5 (ft³)", "PM1 (ft³)", "PM2.5 (ft³)", "PM4 (ft³)", "PM10 (ft³)",
-            "PM1 (μg/m³)", "PM2.5 (μg/m³)", "PM4 (μg/m³)", "PM10 (μg/m³)"
-        ])
-        self.graph_param_combo.setCurrentText("PM2.5 (μg/m³)")
-        self.graph_param_combo.currentTextChanged.connect(self.update_graph)
-        control_layout.addWidget(self.graph_param_combo)
+        # Set default to one week ago
+        default_start_date = QDate.currentDate().addDays(-7)
+        self.start_date_edit = QDateEdit(default_start_date)
+        self.start_date_edit.setCalendarPopup(True)
+        self.start_date_edit.setMaximumWidth(120)
+        self.start_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.start_date_edit)
+        
+        end_date_label = QLabel("End:")
+        control_layout.addWidget(end_date_label)
+        
+        # Set default to today
+        default_end_date = QDate.currentDate()
+        self.end_date_edit = QDateEdit(default_end_date)
+        self.end_date_edit.setCalendarPopup(True)
+        self.end_date_edit.setMaximumWidth(120)
+        self.end_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.end_date_edit)
+        
+        # Add some spacing
+        control_layout.addWidget(QLabel("  "))
+        
+        # CSV Export buttons
+        export_selected_button = QPushButton("Export Selected Data")
+        export_selected_button.clicked.connect(self.export_selected_data)
+        export_selected_button.setMaximumWidth(150)
+        control_layout.addWidget(export_selected_button)
+        
+        export_all_button = QPushButton("Export All Data")
+        export_all_button.clicked.connect(self.export_all_data)
+        export_all_button.setMaximumWidth(150)
+        control_layout.addWidget(export_all_button)
+        
+        # PM Size checkboxes
+        pm_label = QLabel("PM Sizes to Graph (ft³):")
+        control_layout.addWidget(pm_label)
+        
+        # Create checkbox layout
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout()
+        checkbox_widget.setLayout(checkbox_layout)
+        
+        # Create checkboxes for each PM size
+        self.pm_checkboxes = {}
+        pm_sizes = [("PM0.5", "num_pm0_5_ft3", True), 
+                    ("PM1", "num_pm1_ft3", True), 
+                    ("PM2.5", "num_pm2_5_ft3", True), 
+                    ("PM4", "num_pm4_ft3", True), 
+                    ("PM10", "num_pm10_ft3", True)]
+        
+        for display_name, data_key, default_checked in pm_sizes:
+            checkbox = QCheckBox(display_name)
+            checkbox.setChecked(default_checked)
+            checkbox.stateChanged.connect(self.update_graph)
+            self.pm_checkboxes[data_key] = checkbox
+            checkbox_layout.addWidget(checkbox)
+        
+        control_layout.addWidget(checkbox_widget)
         
         control_layout.addStretch()
-        main_layout.addLayout(control_layout)
+        main_layout.addLayout(control_layout, 0)  # Fixed size - don't expand
         
         # Create horizontal splitter for table and graph
         splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(splitter, 1)  # Expandable - takes all extra space
         
         # Left side - Historical data table
         table_widget = QWidget()
@@ -293,13 +537,19 @@ class HistoricalDataWindow(QMainWindow):
         graph_label = QLabel("Historical Data Graph")
         graph_label.setAlignment(Qt.AlignCenter)
         graph_label.setStyleSheet("font-weight: bold; margin: 5px;")
-        graph_layout.addWidget(graph_label)
+        graph_layout.addWidget(graph_label, 0)  # Fixed size
         
         # Create matplotlib figure and canvas
         self.figure = Figure(figsize=(8, 6), dpi=80)
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
-        graph_layout.addWidget(self.canvas)
+        
+        # Add navigation toolbar for zoom, pan, and reset functionality
+        self.toolbar = NavigationToolbar(self.canvas, graph_widget)
+        self.toolbar.setStyleSheet("QToolBar QToolButton { background-color: white; }")
+        
+        graph_layout.addWidget(self.toolbar, 0)  # Fixed size
+        graph_layout.addWidget(self.canvas, 1)   # Expandable - takes all extra space
         
         splitter.addWidget(graph_widget)
         
@@ -307,8 +557,86 @@ class HistoricalDataWindow(QMainWindow):
         splitter.setSizes([800, 800])
         
         # Store historical data for graphing
-        self.historical_data = []
+        self.historical_data = []  # All data from API
+        self.filtered_data = []    # Filtered data based on date range
         
+    def on_date_range_changed(self):
+        """Handle date range changes"""
+        self.filter_data_by_date_range()
+        self.populate_historical_table(self.filtered_data)
+        self.update_graph()
+    
+    def filter_data_by_date_range(self):
+        """Filter historical data based on selected date range"""
+        start_date = self.start_date_edit.date().toPyDate()
+        end_date = self.end_date_edit.date().toPyDate()
+        
+        # Add one day to end_date to include the entire end day
+        end_date = end_date + timedelta(days=1)
+        
+        self.filtered_data = []
+        
+        for record in self.historical_data:
+            # Extract timestamp from record
+            record_datetime = self.extract_timestamp_from_record(record)
+            
+            if record_datetime:
+                record_date = record_datetime.date()
+                if start_date <= record_date < end_date:
+                    self.filtered_data.append(record)
+    
+    def extract_timestamp_from_record(self, record):
+        """Extract datetime object from a record"""
+        timestamp_value = None
+        
+        # Check for standard timestamp formats first
+        if "timestamp_iso" in record:
+            timestamp_value = record["timestamp_iso"]
+        elif "timestamp" in record:
+            timestamp_value = record["timestamp"]
+        else:
+            # Look for timestamp in raw data
+            for key, value in record.items():
+                if isinstance(value, str) and 'T' in value and ':' in value:
+                    timestamp_value = value
+                    break
+                elif isinstance(key, str) and 'T' in key and ':' in key:
+                    timestamp_value = key
+                    break
+            
+            # If still no timestamp, try Unix timestamp
+            if not timestamp_value:
+                for key, value in record.items():
+                    if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
+                        try:
+                            timestamp_value = float(key)
+                            break
+                        except:
+                            pass
+                    elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
+                        try:
+                            timestamp_value = float(value)
+                            break
+                        except:
+                            pass
+        
+        if timestamp_value is not None:
+            try:
+                if isinstance(timestamp_value, str):
+                    # Try ISO format
+                    if 'T' in timestamp_value:
+                        return datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                    else:
+                        # Try to parse as Unix timestamp string
+                        return datetime.fromtimestamp(float(timestamp_value))
+                else:
+                    # Numeric timestamp
+                    return datetime.fromtimestamp(float(timestamp_value))
+            except (ValueError, TypeError, OSError):
+                pass
+        
+        return None
+    
     def load_historical_data(self):
         """Load historical data from the API"""
         try:
@@ -322,15 +650,17 @@ class HistoricalDataWindow(QMainWindow):
             # Handle different response formats
             if data.get("status") == "success" and "historical_data" in data:
                 self.historical_data = data["historical_data"]
-                self.populate_historical_table(self.historical_data)
-                self.update_graph()
             elif "historical_data" in data:  # Handle response without status field
                 self.historical_data = data["historical_data"]
-                self.populate_historical_table(self.historical_data)
-                self.update_graph()
             else:
                 QMessageBox.warning(self, "No Data", 
                                    f"No historical data found for {self.room_name}/{self.sensor_number}")
+                return
+            
+            # Filter data and update displays
+            self.filter_data_by_date_range()
+            self.populate_historical_table(self.filtered_data)
+            self.update_graph()
                 
         except requests.exceptions.ConnectionError:
             QMessageBox.critical(self, "Connection Error", 
@@ -348,32 +678,9 @@ class HistoricalDataWindow(QMainWindow):
             row_position = self.hist_table.rowCount()
             self.hist_table.insertRow(row_position)
             
-            # Try to extract timestamp information
-            # Look for timestamp patterns in the data
-            timestamp_unix = None
-            timestamp_iso = None
-            
-            # Check for various timestamp formats in the record
-            for key, value in record.items():
-                if isinstance(key, str):
-                    # Look for ISO timestamp format
-                    if 'T' in key and (':' in key or '-' in key):
-                        timestamp_iso = key
-                    # Look for Unix timestamp (numeric string)
-                    elif key.replace('.', '').isdigit() and len(key) >= 10:
-                        timestamp_unix = key
-                        
-            # Also check values for timestamp patterns
-            for key, value in record.items():
-                if isinstance(value, str):
-                    if 'T' in value and (':' in value or '-' in value):
-                        timestamp_iso = value
-                    elif str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
-                        timestamp_unix = value
-            
-            # Use standard column mapping if available, otherwise try to parse the raw data
-            if 'timestamp' in record:
-                # Standard format
+            # Check for standard data structure first
+            if any(key in record for key in ['timestamp', 'timestamp_iso', 'num_pm0_5_ft3', 'mass_pm1']):
+                # Standard structured format
                 columns_data = [
                     record.get("timestamp", "N/A"),
                     record.get("timestamp_iso", "N/A"),
@@ -403,8 +710,41 @@ class HistoricalDataWindow(QMainWindow):
                     record.get("mass_pm10_ug_m3", "N/A")
                 ]
             else:
-                # Raw particle size data format - try to extract meaningful values
-                # This is for CSV files with particle sizes as column headers
+                # Raw CSV format - keys are timestamps and particle sizes
+                # Try to extract timestamp information
+                timestamp_unix = None
+                timestamp_iso = None
+                
+                # Look for timestamp patterns in keys
+                for key in record.keys():
+                    if isinstance(key, str):
+                        # Look for ISO timestamp format in keys
+                        if 'T' in key and (':' in key or '-' in key) and len(key) > 15:
+                            timestamp_iso = key
+                        # Look for Unix timestamp (numeric string)
+                        elif key.replace('.', '').isdigit() and len(key) >= 10:
+                            try:
+                                # Validate it's a reasonable Unix timestamp
+                                ts = float(key)
+                                if ts > 1000000000:  # After 2001
+                                    timestamp_unix = key
+                            except:
+                                pass
+                
+                # Look for timestamp patterns in values if not found in keys
+                if not timestamp_unix and not timestamp_iso:
+                    for key, value in record.items():
+                        if isinstance(value, str):
+                            if 'T' in value and (':' in value or '-' in value) and len(value) > 15:
+                                timestamp_iso = value
+                            elif value.replace('.', '').isdigit() and len(value) >= 10:
+                                try:
+                                    ts = float(value)
+                                    if ts > 1000000000:
+                                        timestamp_unix = value
+                                except:
+                                    pass
+                
                 columns_data = [
                     timestamp_unix if timestamp_unix else "N/A",
                     timestamp_iso if timestamp_iso else "N/A"
@@ -415,12 +755,14 @@ class HistoricalDataWindow(QMainWindow):
                 particle_measurements = {}
                 for key, value in record.items():
                     try:
+                        # Skip timestamp keys we already processed
+                        if key == timestamp_unix or key == timestamp_iso:
+                            continue
                         # Skip non-numeric keys that are identifiers
-                        if key in ['room_name', 'sensor_number'] or isinstance(key, str) and not key.replace('.', '').isdigit():
-                            if key not in ['room_name', 'sensor_number'] and 'T' not in key and len(key) > 10:
-                                continue
+                        if key in ['room_name', 'sensor_number']:
+                            continue
                         
-                        # Try to parse as float for particle size
+                        # Try to parse key as particle size
                         if isinstance(key, str) and key.replace('.', '').isdigit():
                             size = float(key)
                             if 0.1 <= size <= 50.0:  # Reasonable particle size range in micrometers
@@ -461,132 +803,141 @@ class HistoricalDataWindow(QMainWindow):
                 pass
     
     def update_graph(self):
-        """Update the graph based on selected parameter"""
-        if not self.historical_data:
-            return
-            
-        selected_param = self.graph_param_combo.currentText()
-        
-        # Map display names to data keys
-        param_map = {
-            "PM1 Mass": "mass_pm1",
-            "PM2.5 Mass": "mass_pm2_5", 
-            "PM4 Mass": "mass_pm4",
-            "PM10 Mass": "mass_pm10",
-            "PM0.5 Count": "num_pm0_5",
-            "PM1 Count": "num_pm1",
-            "PM2.5 Count": "num_pm2_5",
-            "PM4 Count": "num_pm4",
-            "PM10 Count": "num_pm10",
-            "PM0.5 (ft³)": "num_pm0_5_ft3",
-            "PM1 (ft³)": "num_pm1_ft3",
-            "PM2.5 (ft³)": "num_pm2_5_ft3",
-            "PM4 (ft³)": "num_pm4_ft3",
-            "PM10 (ft³)": "num_pm10_ft3",
-            "PM1 (μg/m³)": "mass_pm1_ug_m3",
-            "PM2.5 (μg/m³)": "mass_pm2_5_ug_m3",
-            "PM4 (μg/m³)": "mass_pm4_ug_m3",
-            "PM10 (μg/m³)": "mass_pm10_ug_m3"
-        }
-        
-        data_key = param_map.get(selected_param)
-        
-        # Extract timestamps and values
-        timestamps = []
-        values = []
-        
-        for record in self.historical_data:
-            # Try to extract timestamp
-            timestamp_value = None
-            
-            # Check for standard timestamp formats first
-            if "timestamp_iso" in record:
-                timestamp_value = record["timestamp_iso"]
-            elif "timestamp" in record:
-                timestamp_value = record["timestamp"]
-            else:
-                # Look for timestamp in raw data
-                for key, value in record.items():
-                    if isinstance(value, str) and 'T' in value and ':' in value:
-                        timestamp_value = value
-                        break
-                    elif isinstance(key, str) and 'T' in key and ':' in key:
-                        timestamp_value = key
-                        break
-                
-                # If still no timestamp, try Unix timestamp
-                if not timestamp_value:
-                    for key, value in record.items():
-                        if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
-                            try:
-                                timestamp_value = float(key)
-                                break
-                            except:
-                                pass
-                        elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
-                            try:
-                                timestamp_value = float(value)
-                                break
-                            except:
-                                pass
-            
-            # Try to extract value for the selected parameter
-            param_value = None
-            
-            if data_key and data_key in record:
-                param_value = record[data_key]
-            else:
-                # For raw data format, try to find a reasonable value to plot
-                # For now, let's plot the first numeric particle measurement we can find
-                for key, value in record.items():
-                    try:
-                        if isinstance(key, str) and key.replace('.', '').isdigit():
-                            size = float(key)
-                            if 0.1 <= size <= 50.0:  # Reasonable particle size range
-                                param_value = float(value) if value is not None else None
-                                break
-                    except (ValueError, TypeError):
-                        continue
-            
-            # Process timestamp and add to data if we have both timestamp and value
-            if timestamp_value is not None and param_value is not None:
-                try:
-                    if isinstance(timestamp_value, str):
-                        # Try ISO format
-                        if 'T' in timestamp_value:
-                            dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
-                        else:
-                            # Try to parse as Unix timestamp string
-                            dt = datetime.fromtimestamp(float(timestamp_value))
-                    else:
-                        # Numeric timestamp
-                        dt = datetime.fromtimestamp(float(timestamp_value))
-                        
-                    timestamps.append(dt)
-                    values.append(float(param_value))
-                except (ValueError, TypeError, OSError):
-                    continue
-        
-        if not timestamps or not values:
+        """Update the graph based on selected PM sizes"""
+        if not self.filtered_data:
             # Clear the plot if no data
             self.ax.clear()
-            self.ax.set_title(f"No Data Available for {selected_param}")
+            self.ax.set_title("No Data Available for Selected Date Range")
             self.ax.set_xlabel("Time")
-            self.ax.set_ylabel(selected_param)
+            self.ax.set_ylabel("Particle Count (ft³)")
             self.canvas.draw()
             return
-            
-        # Sort by timestamp
-        sorted_data = sorted(zip(timestamps, values))
-        timestamps, values = zip(*sorted_data)
         
-        # Clear and plot
+        # Get checked PM sizes
+        checked_params = []
+        for data_key, checkbox in self.pm_checkboxes.items():
+            if checkbox.isChecked():
+                checked_params.append(data_key)
+        
+        if not checked_params:
+            # Clear the plot if no parameters selected
+            self.ax.clear()
+            self.ax.set_title("No PM Sizes Selected")
+            self.ax.set_xlabel("Time")
+            self.ax.set_ylabel("Particle Count (ft³)")
+            self.canvas.draw()
+            return
+        
+        # Fixed color mapping for each PM size to maintain consistency
+        color_map = {
+            "num_pm0_5_ft3": 'blue',
+            "num_pm1_ft3": 'red', 
+            "num_pm2_5_ft3": 'green',
+            "num_pm4_ft3": 'orange',
+            "num_pm10_ft3": 'purple'
+        }
+        
+        # Clear the plot
         self.ax.clear()
-        self.ax.plot(timestamps, values, 'b-o', linewidth=2, markersize=4)
-        self.ax.set_title(f"{selected_param} Over Time")
-        self.ax.set_xlabel("Time")
-        self.ax.set_ylabel(selected_param)
+        
+        # Process each checked parameter
+        legend_labels = []
+        for data_key in checked_params:
+            timestamps = []
+            values = []
+            
+            for record in self.filtered_data:
+                # Try to extract timestamp
+                timestamp_value = None
+                
+                # Check for standard timestamp formats first
+                if "timestamp_iso" in record:
+                    timestamp_value = record["timestamp_iso"]
+                elif "timestamp" in record:
+                    timestamp_value = record["timestamp"]
+                else:
+                    # Look for timestamp in raw data
+                    for key, value in record.items():
+                        if isinstance(value, str) and 'T' in value and ':' in value:
+                            timestamp_value = value
+                            break
+                        elif isinstance(key, str) and 'T' in key and ':' in key:
+                            timestamp_value = key
+                            break
+                    
+                    # If still no timestamp, try Unix timestamp
+                    if not timestamp_value:
+                        for key, value in record.items():
+                            if isinstance(key, str) and key.replace('.', '').isdigit() and len(key) >= 10:
+                                try:
+                                    timestamp_value = float(key)
+                                    break
+                                except:
+                                    pass
+                            elif isinstance(value, (int, float, str)) and str(value).replace('.', '').isdigit() and len(str(value)) >= 10:
+                                try:
+                                    timestamp_value = float(value)
+                                    break
+                                except:
+                                    pass
+                
+                # Try to extract value for the current parameter
+                param_value = None
+                
+                if data_key in record:
+                    param_value = record[data_key]
+                
+                # Process timestamp and add to data if we have both timestamp and value
+                if timestamp_value is not None and param_value is not None:
+                    try:
+                        if isinstance(timestamp_value, str):
+                            # Try ISO format
+                            if 'T' in timestamp_value:
+                                dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                            else:
+                                # Try to parse as Unix timestamp string
+                                dt = datetime.fromtimestamp(float(timestamp_value))
+                        else:
+                            # Numeric timestamp
+                            dt = datetime.fromtimestamp(float(timestamp_value))
+                        
+                        # Convert to Mountain Time
+                        dt_mountain = convert_to_mountain(dt)
+                        timestamps.append(dt_mountain)
+                        values.append(float(param_value))
+                    except (ValueError, TypeError, OSError):
+                        continue
+            
+            # Plot this parameter if we have data
+            if timestamps and values:
+                # Sort by timestamp
+                sorted_data = sorted(zip(timestamps, values))
+                timestamps, values = zip(*sorted_data)
+                
+                # Get display name for legend
+                display_name = {
+                    "num_pm0_5_ft3": "PM0.5",
+                    "num_pm1_ft3": "PM1", 
+                    "num_pm2_5_ft3": "PM2.5",
+                    "num_pm4_ft3": "PM4",
+                    "num_pm10_ft3": "PM10"
+                }.get(data_key, data_key)
+                
+                # Plot line
+                color = color_map[data_key]
+                self.ax.plot(timestamps, values, color=color, linewidth=2, marker='o', 
+                           markersize=3, label=display_name, alpha=0.8)
+                legend_labels.append(display_name)
+        
+        # Set title and labels
+        self.ax.set_title("PM Particle Concentrations Over Time")
+        self.ax.set_xlabel("Time (Mountain Time)")
+        self.ax.set_ylabel("Particle Count (ft³)")
         self.ax.grid(True, alpha=0.3)
+        
+        # Add legend if we have data
+        if legend_labels:
+            self.ax.legend(loc='upper right')
         
         # Format x-axis
         self.figure.autofmt_xdate()
@@ -594,6 +945,141 @@ class HistoricalDataWindow(QMainWindow):
         # Adjust layout and refresh
         self.figure.tight_layout()
         self.canvas.draw()
+    
+    def export_selected_data(self):
+        """Export currently filtered/displayed data to CSV"""
+        if not self.filtered_data:
+            QMessageBox.information(self, "No Data", "No data available to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export Selected Data", 
+            f"particle_data_{self.room_name}_{self.sensor_number}_selected.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if file_path:
+            self._export_to_csv(self.filtered_data, file_path)
+    
+    def export_all_data(self):
+        """Export all historical data to CSV"""
+        if not self.historical_data:
+            QMessageBox.information(self, "No Data", "No data available to export.")
+            return
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Export All Data", 
+            f"particle_data_{self.room_name}_{self.sensor_number}_all.csv",
+            "CSV Files (*.csv)"
+        )
+        
+        if file_path:
+            self._export_to_csv(self.historical_data, file_path)
+    
+    def _export_to_csv(self, data, file_path):
+        """Helper method to write data to CSV file"""
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write header
+                writer.writerow(self.hist_columns)
+                
+                # Write data rows
+                for record in data:
+                    row_data = []
+                    
+                    # Check for standard data structure first
+                    if any(key in record for key in ['timestamp', 'timestamp_iso', 'num_pm0_5_ft3', 'mass_pm1']):
+                        # Standard structured format
+                        columns_data = [
+                            record.get("timestamp", ""),
+                            record.get("timestamp_iso", ""),
+                            record.get("mass_pm1", ""),
+                            record.get("mass_pm2_5", ""),
+                            record.get("mass_pm4", ""),
+                            record.get("mass_pm10", ""),
+                            record.get("num_pm0_5", ""),
+                            record.get("num_pm1", ""),
+                            record.get("num_pm2_5", ""),
+                            record.get("num_pm4", ""),
+                            record.get("num_pm10", ""),
+                            record.get("typical_particle_size_um", ""),
+                            record.get("num_pm0_5_ft3", ""),
+                            record.get("num_pm1_ft3", ""),
+                            record.get("num_pm2_5_ft3", ""),
+                            record.get("num_pm4_ft3", ""),
+                            record.get("num_pm10_ft3", ""),
+                            record.get("bin_0_3_to_0_5", ""),
+                            record.get("bin_0_5_to_1_0", ""),
+                            record.get("bin_1_0_to_2_5", ""),
+                            record.get("bin_2_5_to_4_0", ""),
+                            record.get("bin_4_0_to_10", ""),
+                            record.get("mass_pm1_ug_m3", ""),
+                            record.get("mass_pm2_5_ug_m3", ""),
+                            record.get("mass_pm4_ug_m3", ""),
+                            record.get("mass_pm10_ug_m3", "")
+                        ]
+                    else:
+                        # Raw CSV format handling
+                        timestamp_unix = None
+                        timestamp_iso = None
+                        
+                        # Look for timestamp patterns
+                        for key in record.keys():
+                            if isinstance(key, str):
+                                if 'T' in key and (':' in key or '-' in key) and len(key) > 15:
+                                    timestamp_iso = key
+                                elif key.replace('.', '').isdigit() and len(key) >= 10:
+                                    try:
+                                        ts = float(key)
+                                        if ts > 1000000000:
+                                            timestamp_unix = key
+                                    except:
+                                        pass
+                        
+                        columns_data = [timestamp_unix or "", timestamp_iso or ""]
+                        
+                        # Add particle data
+                        particle_measurements = {}
+                        for key, value in record.items():
+                            try:
+                                if key == timestamp_unix or key == timestamp_iso:
+                                    continue
+                                if key in ['room_name', 'sensor_number']:
+                                    continue
+                                if isinstance(key, str) and key.replace('.', '').isdigit():
+                                    size = float(key)
+                                    if 0.1 <= size <= 50.0:
+                                        particle_measurements[size] = value
+                            except (ValueError, TypeError):
+                                continue
+                        
+                        sorted_measurements = sorted(particle_measurements.items())
+                        remaining_cols = len(self.hist_columns) - 2
+                        for i in range(remaining_cols):
+                            if i < len(sorted_measurements):
+                                size, value = sorted_measurements[i]
+                                columns_data.append(f"{size}μm: {value}")
+                            else:
+                                columns_data.append("")
+                    
+                    # Clean the data for CSV
+                    clean_row = []
+                    for value in columns_data:
+                        if value is None or value == "N/A":
+                            clean_row.append("")
+                        else:
+                            clean_row.append(str(value))
+                    
+                    writer.writerow(clean_row)
+            
+            QMessageBox.information(self, "Export Complete", f"Data exported successfully to:\n{file_path}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Error exporting data to CSV:\n{str(e)}")
 
 
 def main():
