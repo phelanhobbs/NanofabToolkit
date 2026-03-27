@@ -1,12 +1,29 @@
 # MicroPython SPS30 (I2C) driver + API transmission for Raspberry Pi Pico W
 # Sends particle sensor data to API endpoint with room name, sensor number, and all datapoints.
+# Configured for headless (no USB terminal) operation.
 
 import time
 import struct
 import ujson
 import urequests
 import network
-from machine import I2C, Pin
+import gc
+import sys
+from machine import I2C, Pin, WDT
+
+try:
+    import ntptime
+except ImportError:
+    ntptime = None
+
+# ===== Headless-safe print =====
+# When no USB serial host is connected, print() can block or raise OSError.
+# This wrapper silently discards output when the USB CDC is unavailable.
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except OSError:
+        pass  # USB serial not connected — discard output
 
 # LED setup for Raspberry Pi Pico W
 # The onboard LED is connected to GPIO 25 on Pico W
@@ -23,6 +40,15 @@ MEASUREMENT_PERIOD_S = 15   # Read sensor data every 15 seconds
 SCHEDULED_SENDING = True    # If True, send data at exact times; if False, send every MEASUREMENT_PERIOD_S
 SEND_INTERVAL_MINUTES = 15  # Send data every 15 minutes (at :00, :15, :30, :45)
 
+# Time synchronization configuration (recommended for scheduled sending)
+TIME_SYNC_ENABLED = True
+TIME_SYNC_INTERVAL_HOURS = 6  # Re-sync clock every 6 hours
+NTP_SERVERS = (
+    "time.google.com",
+    "pool.ntp.org",
+    "time.nist.gov",  # NIST (time.gov-related ecosystem)
+)
+
 # WiFi credentials
 WIFI_SSID = "ULink"
 WIFI_PASSWORD = "u0919472632117"
@@ -36,8 +62,8 @@ API_URL = "https://nfhistory.nanofab.utah.edu/particle-data"  # Production API e
 # API_URL = "http://192.168.1.100:443/particle-data"  # Replace with your local server IP
 # API_URL = "http://10.0.0.100:443/particle-data"     # Replace with your local server IP
 
-ROOM_NAME = "LTDirtyTest"  # Name of the room where this sensor is located
-SENSOR_NUMBER = "006"     # Unique sensor identifier/number
+ROOM_NAME = "HEADLESS"  # Name of the room where this sensor is located
+SENSOR_NUMBER = "009"     # Unique sensor identifier/number
 
 # UTC offset in hours (Mountain Time: UTC-7 in standard time, UTC-6 in daylight saving time)
 # Use -7 for Mountain Standard Time (MST) or -6 for Mountain Daylight Time (MDT)
@@ -80,7 +106,7 @@ class SPS30:
             crc = _crc8_word(b0, b1)
             self._write_ptr_with_data(PTR_START_MEAS, bytes([b0, b1, crc]))
         except OSError as e:
-            print(f"SPS30 start_measurement failed: {e} (errno: {e.errno})")
+            safe_print(f"SPS30 start_measurement failed: {e} (errno: {e.errno})")
             raise
 
     def stop_measurement(self):
@@ -117,22 +143,22 @@ def format_row(v):
 
 def scan_i2c_devices(i2c):
     """Scan for I2C devices and return list of addresses"""
-    print("Scanning I2C bus...")
+    safe_print("Scanning I2C bus...")
     try:
         devices = i2c.scan()
         if devices:
-            print(f"Found devices at addresses: {[hex(addr) for addr in devices]}")
+            safe_print(f"Found devices at addresses: {[hex(addr) for addr in devices]}")
         else:
-            print("No I2C devices found!")
+            safe_print("No I2C devices found!")
         return devices
     except OSError as e:
-        print(f"I2C scan failed: {e} (errno: {e.errno})")
+        safe_print(f"I2C scan failed: {e} (errno: {e.errno})")
         if e.errno == 5:  # EIO
-            print("I2C EIO Error - Check:")
-            print("- Wiring connections (SDA/SCL)")
-            print("- Power supply (5V for SPS30)")
-            print("- Ground connections")
-            print("- Pull-up resistors")
+            safe_print("I2C EIO Error - Check:")
+            safe_print("- Wiring connections (SDA/SCL)")
+            safe_print("- Power supply (5V for SPS30)")
+            safe_print("- Ground connections")
+            safe_print("- Pull-up resistors")
         return []
 
 def test_i2c_connection(i2c, addr):
@@ -147,12 +173,12 @@ def test_i2c_connection(i2c, addr):
         elif e.errno == 19:  # ENODEV - no device at address  
             return False
         else:
-            print(f"Unexpected I2C error: {e}")
+            safe_print(f"Unexpected I2C error: {e}")
             return False
 
 def test_dns_resolution():
     """Test DNS resolution with different servers"""
-    print("Testing DNS resolution...")
+    safe_print("Testing DNS resolution...")
     
     # Test with well-known servers
     test_domains = [
@@ -168,85 +194,102 @@ def test_dns_resolution():
                 # Test direct IP connection
                 test_response = urequests.get(f"http://{domain}", timeout=5)
                 test_response.close()
-                print(f"✓ Direct IP connection works: {domain}")
+                safe_print(f"Direct IP connection works: {domain}")
             else:
                 # Test domain name resolution
                 test_response = urequests.get(f"http://{domain}", timeout=5)
                 test_response.close()
-                print(f"✓ DNS resolution works: {domain}")
+                safe_print(f"DNS resolution works: {domain}")
         except OSError as e:
             if e.errno == -2:
-                print(f"✗ DNS failed: {domain}")
+                safe_print(f"DNS failed: {domain}")
             elif e.errno == -1:
-                print(f"✗ Timeout: {domain}")
+                safe_print(f"Timeout: {domain}")
             else:
-                print(f"✗ Error {e.errno}: {domain}")
+                safe_print(f"Error {e.errno}: {domain}")
         except Exception as e:
-            print(f"✗ Exception: {domain} - {e}")
+            safe_print(f"Exception: {domain} - {e}")
 
 def test_network_connectivity():
-    """Test basic network connectivity and DNS resolution"""
-    print("=== Network Diagnostics ===")
+    """Test basic network connectivity and DNS resolution.
+    Skips slow external HTTP checks to avoid blocking headless startup."""
+    safe_print("=== Network Diagnostics ===")
     
     # Check WiFi status
     wlan = network.WLAN(network.STA_IF)
     if wlan.isconnected():
         config = wlan.ifconfig()
-        print(f"✓ WiFi connected")
-        print(f"  IP: {config[0]}")
-        print(f"  Netmask: {config[1]}")
-        print(f"  Gateway: {config[2]}")
-        print(f"  DNS: {config[3]}")
+        safe_print(f"WiFi connected")
+        safe_print(f"  IP: {config[0]}")
+        safe_print(f"  Netmask: {config[1]}")
+        safe_print(f"  Gateway: {config[2]}")
+        safe_print(f"  DNS: {config[3]}")
+        # If we have an IP that isn't 0.0.0.0, WiFi is connected and DNS likely works.
+        # Skip the slow external HTTP checks (httpbin.org) — they waste time headless
+        # and can fail on networks that block arbitrary outbound traffic.
+        return config[0] != "0.0.0.0"
     else:
-        print("✗ WiFi not connected")
-        return False
-    
-    # Test DNS resolution
-    test_dns_resolution()
-    
-    try:
-        # Test simple HTTP request to a reliable server
-        print("Testing basic HTTP connectivity...")
-        test_response = urequests.get("http://httpbin.org/ip", timeout=10)
-        if test_response.status_code == 200:
-            print("✓ Basic HTTP connectivity works")
-            response_data = test_response.text
-            test_response.close()
-            print(f"  Response: {response_data[:100]}...")
-            return True
-        else:
-            print(f"✗ HTTP test failed with status {test_response.status_code}")
-            test_response.close()
-            return False
-    except OSError as e:
-        print(f"✗ Network connectivity test failed: {e} (errno: {e.errno})")
-        if e.errno == -2:
-            print("  DNS resolution not working - try using IP addresses")
-        elif e.errno == -1:
-            print("  Connection timeout")
-        return False
-    except Exception as e:
-        print(f"✗ Network test error: {e}")
+        safe_print("WiFi not connected")
         return False
 
 def configure_dns():
     """Try to configure DNS manually if automatic configuration fails"""
-    print("Attempting manual DNS configuration...")
+    safe_print("Attempting manual DNS configuration...")
     
     try:
         import socket
         # Try to manually set DNS servers (Google and Cloudflare)
         # Note: This may not work in all MicroPython implementations
-        print("Setting DNS servers: 8.8.8.8, 1.1.1.1")
+        safe_print("Setting DNS servers: 8.8.8.8, 1.1.1.1")
         # This is implementation-dependent and may not be available
     except Exception as e:
-        print(f"Manual DNS configuration not available: {e}")
+        safe_print(f"Manual DNS configuration not available: {e}")
     
-    print("DNS troubleshooting suggestions:")
-    print("1. Check router/network DNS settings")
-    print("2. Try connecting to a different WiFi network") 
-    print("3. Use a mobile hotspot for testing")
-    print("4. Contact network administrator")
+    safe_print("DNS troubleshooting suggestions:")
+    safe_print("1. Check router/network DNS settings")
+    safe_print("2. Try connecting to a different WiFi network") 
+    safe_print("3. Use a mobile hotspot for testing")
+    safe_print("4. Contact network administrator")
+
+def clock_looks_valid():
+    """Basic sanity check for RTC clock (epoch starts near year 2000 on unsynced boards)."""
+    try:
+        return time.localtime()[0] >= 2024
+    except Exception:
+        return False
+
+def sync_time_ntp(max_attempts_per_server=2):
+    """Sync RTC from NTP servers. Returns True on success."""
+    if not TIME_SYNC_ENABLED:
+        return False
+
+    if ntptime is None:
+        safe_print("ntptime module not available on this firmware; skipping NTP sync")
+        return False
+
+    safe_print("Synchronizing time via NTP...")
+
+    for server in NTP_SERVERS:
+        for attempt in range(max_attempts_per_server):
+            try:
+                ntptime.host = server
+                ntptime.settime()  # Sets RTC to UTC
+
+                utc_now = time.time()
+                local_now = utc_now + (UTC_OFFSET_HOURS * 3600)
+                safe_print(f"Time sync OK via {server}")
+                safe_print(f"  UTC:   {format_local_time(utc_now)}")
+                safe_print(f"  Local: {format_local_time(local_now)}")
+                return True
+            except OSError as e:
+                safe_print(f"NTP failed via {server} attempt {attempt + 1}: {e} (errno: {e.errno})")
+                time.sleep(1)
+            except Exception as e:
+                safe_print(f"NTP failed via {server} attempt {attempt + 1}: {e}")
+                time.sleep(1)
+
+    safe_print("NTP sync failed on all servers")
+    return False
 
 def calculate_next_send_time():
     """Calculate the next scheduled send time based on current local time"""
@@ -295,30 +338,63 @@ def format_local_time(timestamp):
         time_struct[3], time_struct[4], time_struct[5]   # hour, minute, second
     )
 
-def connect_wifi():
-    """Connect to WiFi network"""
+def connect_wifi(max_attempts=3):
+    """Connect to WiFi network with retries for headless reliability"""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+
+    status_names = {
+        0: "STAT_IDLE",
+        1: "STAT_CONNECTING",
+        2: "STAT_WRONG_PASSWORD",
+        3: "STAT_NO_AP_FOUND",
+        4: "STAT_CONNECT_FAIL",
+        5: "STAT_GOT_IP",
+        -1: "STAT_CONNECT_FAIL",
+        -2: "STAT_NO_AP_FOUND",
+        -3: "STAT_WRONG_PASSWORD",
+    }
     
-    if not wlan.isconnected():
-        print(f"Connecting to WiFi: {WIFI_SSID}")
-        wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+    # Give the CYW43 WiFi chip time to initialise (critical for headless boot)
+    time.sleep(1)
+    
+    for attempt in range(max_attempts):
+        if wlan.isconnected():
+            safe_print(f"Already connected to WiFi. IP: {wlan.ifconfig()[0]}")
+            return True
+
+        # Reset state between attempts for better reliability
+        try:
+            wlan.disconnect()
+        except Exception:
+            pass
+        time.sleep(1)
         
-        # Wait for connection
-        timeout = 10
+        safe_print(f"Connecting to WiFi: {WIFI_SSID} (attempt {attempt + 1}/{max_attempts})")
+        try:
+            wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+        except Exception as e:
+            safe_print(f"WiFi connect call failed: {e}")
+            time.sleep(2)
+            continue
+        
+        # Wait for connection — 20 s is more reliable headless than 10 s
+        timeout = 20
         while timeout > 0 and not wlan.isconnected():
             time.sleep(1)
             timeout -= 1
-            
+        
         if wlan.isconnected():
-            print(f"WiFi connected! IP: {wlan.ifconfig()[0]}")
+            safe_print(f"WiFi connected! IP: {wlan.ifconfig()[0]}")
             return True
         else:
-            print("Failed to connect to WiFi")
-            return False
-    else:
-        print(f"Already connected to WiFi. IP: {wlan.ifconfig()[0]}")
-        return True
+            st = wlan.status()
+            safe_print(f"WiFi attempt {attempt + 1} failed, status: {st} ({status_names.get(st, 'UNKNOWN')})")
+            wlan.disconnect()
+            time.sleep(2)
+    
+    safe_print("Failed to connect to WiFi after all attempts")
+    return False
 
 def send_to_api(vals):
     """Send particle sensor data to API endpoint with fallback URLs"""
@@ -339,18 +415,18 @@ def send_to_api(vals):
 
             if url_attempt == 0:  # Only print debug info on first attempt
                 # DEBUG: Print raw sensor values before any conversion
-                print(f"\n===== RAW SENSOR DATA =====")
-                print(f"Mass PM1.0: {mass_PM1:.3f} μg/m³")
-                print(f"Mass PM2.5: {mass_PM2_5:.3f} μg/m³")
-                print(f"Mass PM4.0: {mass_PM4:.3f} μg/m³")
-                print(f"Mass PM10:  {mass_PM10:.3f} μg/m³")
-                print(f"Num PM0.5:  {num_PM0_5:.1f} #/cm³")
-                print(f"Num PM1.0:  {num_PM1:.1f} #/cm³")
-                print(f"Num PM2.5:  {num_PM2_5:.1f} #/cm³")
-                print(f"Num PM4.0:  {num_PM4:.1f} #/cm³")
-                print(f"Num PM10:   {num_PM10:.1f} #/cm³")
-                print(f"Typical particle size: {tps_um:.3f} μm")
-                print(f"============================")
+                safe_print(f"\n===== RAW SENSOR DATA =====")
+                safe_print(f"Mass PM1.0: {mass_PM1:.3f} ug/m3")
+                safe_print(f"Mass PM2.5: {mass_PM2_5:.3f} ug/m3")
+                safe_print(f"Mass PM4.0: {mass_PM4:.3f} ug/m3")
+                safe_print(f"Mass PM10:  {mass_PM10:.3f} ug/m3")
+                safe_print(f"Num PM0.5:  {num_PM0_5:.1f} #/cm3")
+                safe_print(f"Num PM1.0:  {num_PM1:.1f} #/cm3")
+                safe_print(f"Num PM2.5:  {num_PM2_5:.1f} #/cm3")
+                safe_print(f"Num PM4.0:  {num_PM4:.1f} #/cm3")
+                safe_print(f"Num PM10:   {num_PM10:.1f} #/cm3")
+                safe_print(f"Typical particle size: {tps_um:.3f} um")
+                safe_print(f"============================")
 
             # Convert number concentrations from #/cm³ to #/ft³
             num_PM0_5_ft3 = num_PM0_5 * CM3_TO_FT3
@@ -361,13 +437,13 @@ def send_to_api(vals):
 
             if url_attempt == 0:  # Only print debug info on first attempt
                 # DEBUG: Print converted values
-                print(f"===== CONVERTED DATA =====")
-                print(f"Num PM0.5:  {num_PM0_5_ft3:.0f} #/ft³")
-                print(f"Num PM1.0:  {num_PM1_ft3:.0f} #/ft³")
-                print(f"Num PM2.5:  {num_PM2_5_ft3:.0f} #/ft³")
-                print(f"Num PM4.0:  {num_PM4_ft3:.0f} #/ft³")
-                print(f"Num PM10:   {num_PM10_ft3:.0f} #/ft³")
-                print(f"===========================")
+                safe_print(f"===== CONVERTED DATA =====")
+                safe_print(f"Num PM0.5:  {num_PM0_5_ft3:.0f} #/ft3")
+                safe_print(f"Num PM1.0:  {num_PM1_ft3:.0f} #/ft3")
+                safe_print(f"Num PM2.5:  {num_PM2_5_ft3:.0f} #/ft3")
+                safe_print(f"Num PM4.0:  {num_PM4_ft3:.0f} #/ft3")
+                safe_print(f"Num PM10:   {num_PM10_ft3:.0f} #/ft3")
+                safe_print(f"===========================")
 
             # Calculate differential bins (as in original code)
             b0 = max(num_PM0_5_ft3, 0.0)                    # 0.3–0.5 µm
@@ -424,21 +500,21 @@ def send_to_api(vals):
             # Convert to JSON
             json_data = ujson.dumps(data)
             
-            print(f"Attempting to send data to: {current_url}")
+            safe_print(f"Attempting to send data to: {current_url}")
             if url_attempt > 0:
-                print(f"  (Fallback attempt #{url_attempt})")
-            print(f"Data size: {len(json_data)} bytes")
+                safe_print(f"  (Fallback attempt #{url_attempt})")
+            safe_print(f"Data size: {len(json_data)} bytes")
             
             # Send HTTP POST request with timeout
             headers = {'Content-Type': 'application/json'}
             response = urequests.post(current_url, data=json_data, headers=headers)
             
-            print(f"Response status code: {response.status_code}")
+            safe_print(f"Response status code: {response.status_code}")
             
             if response.status_code == 200:
-                print(f"✓ Data sent successfully to API. Total particles: {round(num_PM0_5_ft3, 0)} #/ft³")
+                safe_print(f"Data sent successfully to API. Total particles: {round(num_PM0_5_ft3, 0)} #/ft3")
                 if url_attempt > 0:
-                    print(f"  Success using fallback URL: {current_url}")
+                    safe_print(f"  Success using fallback URL: {current_url}")
                 return True
             else:
                 response_text = ""
@@ -446,22 +522,22 @@ def send_to_api(vals):
                     response_text = response.text
                 except:
                     response_text = "<unable to read response>"
-                print(f"✗ HTTP {response.status_code}: {response_text}")
+                safe_print(f"HTTP {response.status_code}: {response_text}")
                 # Don't return here - try next URL
             
         except OSError as e:
-            print(f"✗ Network error for {current_url}: {e} (errno: {e.errno})")
+            safe_print(f"Network error for {current_url}: {e} (errno: {e.errno})")
             if e.errno == -2:
-                print("  DNS resolution failed")
+                safe_print("  DNS resolution failed")
             elif e.errno == -1:
-                print("  Connection timeout")
+                safe_print("  Connection timeout")
             elif e.errno == 104:
-                print("  Connection reset by peer")
+                safe_print("  Connection reset by peer")
             elif e.errno == 113:
-                print("  No route to host")
+                safe_print("  No route to host")
             # Don't return here - try next URL
         except Exception as e:
-            print(f"✗ Error with {current_url}: {e} (type: {type(e)})")
+            safe_print(f"Error with {current_url}: {e} (type: {type(e)})")
             # Don't return here - try next URL
         finally:
             if response:
@@ -469,20 +545,22 @@ def send_to_api(vals):
                     response.close()
                 except:
                     pass
+            # Free memory after each attempt
+            gc.collect()
     
     # If we get here, all URLs failed
-    print("✗ All API endpoints failed")
+    safe_print("All API endpoints failed")
     return False
 
 def blink_led_startup():
     """Blink the onboard LED twice to indicate startup"""
-    print("Initializing - LED startup sequence...")
+    safe_print("Initializing - LED startup sequence...")
     for i in range(2):
         LED_PIN.on()   # Turn LED on
         time.sleep(0.3)
         LED_PIN.off()  # Turn LED off
         time.sleep(0.3)
-    print("Startup sequence complete")
+    safe_print("Startup sequence complete")
 
 def led_error_code(error_type):
     """Flash LED with different patterns to indicate different errors"""
@@ -523,56 +601,73 @@ def led_error_code(error_type):
     LED_PIN.off()
 
 def main():
+    # ---- Enable hardware watchdog (8.3 s max on RP2040) ----
+    # If the code hangs for any reason the Pico will auto-reset.
+    wdt = WDT(timeout=8300)  # milliseconds
+    wdt.feed()
+
     try:
-        print("=== Particle Sensor with API Data Transmission ===")
-        print(f"Room: {ROOM_NAME}, Sensor: {SENSOR_NUMBER}")
-        print(f"Target API: {API_URL}")
+        safe_print("=== Particle Sensor with API Data Transmission ===")
+        safe_print(f"Room: {ROOM_NAME}, Sensor: {SENSOR_NUMBER}")
+        safe_print(f"Target API: {API_URL}")
         
         # LED startup sequence - blink twice
         blink_led_startup()
+        wdt.feed()
         
         # Turn LED on and keep it on while code is running
         LED_PIN.on()
-        print("LED is now on - indicates sensor is running")
+        safe_print("LED is now on - indicates sensor is running")
         
-        # Add delay for system stabilization (important for standalone operation)
-        print("Waiting for system to stabilize...")
-        time.sleep(2)
+        # Longer stabilisation delay for headless boot (no USB enumeration to slow us down)
+        safe_print("Waiting for system to stabilize...")
+        for _ in range(5):          # 5 seconds total, feeding watchdog each second
+            time.sleep(1)
+            wdt.feed()
         
-        # Connect to WiFi first
+        # Free any boot-time garbage before we start allocating
+        gc.collect()
+        wdt.feed()
+        
+        # Connect to WiFi first (with retries built in)
         if not connect_wifi():
-            print("Cannot proceed without WiFi connection")
+            safe_print("Cannot proceed without WiFi connection")
             led_error_code("wifi")  # 3 blinks for WiFi error
             return
-        
-        # Test network connectivity
-        if not test_network_connectivity():
-            print("Network connectivity issues detected")
-            print("Attempting DNS troubleshooting...")
-            configure_dns()
-            print("Will continue but API calls may fail")
-            print("Consider:")
-            print("- Using a different WiFi network")
-            print("- Using mobile hotspot for testing")
-            print("- Contacting network administrator")
-            print("- Using local development server")
+        wdt.feed()
+
+        # Sync RTC time for accurate scheduled sending
+        last_time_sync_utc = None
+        if sync_time_ntp():
+            last_time_sync_utc = time.time()
         else:
-            print("✓ Network connectivity looks good")
+            safe_print("Proceeding without confirmed RTC sync. Scheduled send times may drift.")
+        wdt.feed()
         
-        print("Initializing I2C...")
+        # Quick connectivity check (no slow external HTTP calls)
+        if not test_network_connectivity():
+            safe_print("Network connectivity issues detected")
+            configure_dns()
+            safe_print("Will continue but API calls may fail")
+        else:
+            safe_print("Network connectivity looks good")
+        wdt.feed()
+        
+        safe_print("Initializing I2C...")
         # Add delay before I2C initialization
         time.sleep(1)
+        wdt.feed()
         
         try:
             i2c = I2C(I2C_ID, sda=Pin(SDA_PIN), scl=Pin(SCL_PIN), freq=100_000)
-            print(f"I2C initialized successfully on pins SDA={SDA_PIN}, SCL={SCL_PIN}")
+            safe_print(f"I2C initialized successfully on pins SDA={SDA_PIN}, SCL={SCL_PIN}")
             # Give I2C bus time to settle
             time.sleep(0.5)
         except Exception as e:
-            print(f"Failed to initialize I2C: {e}")
-            print(f"Error type: {type(e).__name__}")
+            safe_print(f"Failed to initialize I2C: {e}")
+            safe_print(f"Error type: {type(e).__name__}")
             if hasattr(e, 'errno'):
-                print(f"Error number: {e.errno}")
+                safe_print(f"Error number: {e.errno}")
             led_error_code("i2c")  # 4 blinks for I2C error
             try:
                 with open("error_log.txt", "a") as f:
@@ -580,9 +675,10 @@ def main():
             except:
                 pass
             return
+        wdt.feed()
         
         # Scan for devices with retries
-        print("Scanning for I2C devices...")
+        safe_print("Scanning for I2C devices...")
         devices = []
         max_retries = 3
         
@@ -590,32 +686,35 @@ def main():
             devices = scan_i2c_devices(i2c)
             if devices or attempt == max_retries - 1:
                 break
-            print(f"Scan attempt {attempt + 1} failed, retrying in 1 second...")
+            safe_print(f"Scan attempt {attempt + 1} failed, retrying in 1 second...")
             time.sleep(1)
+            wdt.feed()
+        
+        wdt.feed()
         
         # Check if SPS30 is present
         if ADDR not in devices:
-            print(f"SPS30 not found at address {hex(ADDR)}")
-            print("Check wiring:")
-            print(f"- SDA: GPIO{SDA_PIN}")
-            print(f"- SCL: GPIO{SCL_PIN}")
-            print("- VCC: 5V (SPS30 requires 5V)")
-            print("- GND: Ground")
-            print("- Pull-up resistors on SDA/SCL (usually built into Pico)")
+            safe_print(f"SPS30 not found at address {hex(ADDR)}")
+            safe_print("Check wiring:")
+            safe_print(f"- SDA: GPIO{SDA_PIN}")
+            safe_print(f"- SCL: GPIO{SCL_PIN}")
+            safe_print("- VCC: 5V (SPS30 requires 5V)")
+            safe_print("- GND: Ground")
+            safe_print("- Pull-up resistors on SDA/SCL (usually built into Pico)")
             led_error_code("sensor")  # 5 blinks for sensor not found
             return
         
-        print(f"SPS30 found at {hex(ADDR)}")
+        safe_print(f"SPS30 found at {hex(ADDR)}")
         
         # Test basic communication
-        print("Testing SPS30 communication...")
+        safe_print("Testing SPS30 communication...")
         if not test_i2c_connection(i2c, ADDR):
-            print("Cannot communicate with SPS30")
-            print("This could indicate:")
-            print("- Faulty sensor")
-            print("- Incorrect I2C address")
-            print("- Power supply issues (ensure 5V, not 3.3V)")
-            print("- Poor connections")
+            safe_print("Cannot communicate with SPS30")
+            safe_print("This could indicate:")
+            safe_print("- Faulty sensor")
+            safe_print("- Incorrect I2C address")
+            safe_print("- Power supply issues (ensure 5V, not 3.3V)")
+            safe_print("- Poor connections")
             led_error_code("sensor")  # 5 blinks for sensor communication error
             try:
                 with open("error_log.txt", "a") as f:
@@ -624,36 +723,39 @@ def main():
                 pass
             return
         else:
-            print("SPS30 communication test passed")
+            safe_print("SPS30 communication test passed")
+        wdt.feed()
         
         sps = SPS30(i2c)
         
         # Try to stop any existing measurement first (sensor might be in unknown state)
-        print("Resetting sensor state...")
+        safe_print("Resetting sensor state...")
         try:
             sps.stop_measurement()
             time.sleep(1)  # Give sensor time to stop
         except Exception:
             pass  # Ignore errors if sensor wasn't measuring
+        wdt.feed()
         
-        print("Starting measurement...")
+        safe_print("Starting measurement...")
         # Add retry logic for starting measurement
         measurement_started = False
         for attempt in range(3):
             try:
                 # Start measurement in float mode
                 sps.start_measurement_float()
-                print("Measurement started successfully!")
+                safe_print("Measurement started successfully!")
                 measurement_started = True
                 break
             except OSError as e:
-                print(f"Attempt {attempt + 1} failed: {e} (errno: {e.errno})")
+                safe_print(f"Attempt {attempt + 1} failed: {e} (errno: {e.errno})")
                 if attempt < 2:  # Don't sleep on last attempt
-                    print("Retrying in 2 seconds...")
+                    safe_print("Retrying in 2 seconds...")
                     time.sleep(2)
+                    wdt.feed()
         
         if not measurement_started:
-            print("Failed to start measurement after 3 attempts")
+            safe_print("Failed to start measurement after 3 attempts")
             led_error_code("sensor")  # 5 blinks for measurement start error
             try:
                 with open("error_log.txt", "a") as f:
@@ -661,41 +763,74 @@ def main():
             except:
                 pass
             return
+        wdt.feed()
 
         # Warm-up: sensor specifies ~1 s cadence; stable startup may take several seconds.
         # Give extra time for standalone operation
-        print("Waiting for sensor to stabilize (10 seconds)...")
+        safe_print("Waiting for sensor to stabilize (10 seconds)...")
         t0 = time.ticks_ms()
         sensor_ready = False
         
         while time.ticks_diff(time.ticks_ms(), t0) < 10000:  # Wait up to 10 seconds
+            wdt.feed()
             try:
                 if sps.read_data_ready():
                     sensor_ready = True
-                    print("Sensor is ready!")
+                    safe_print("Sensor is ready!")
                     break
             except Exception as e:
-                print(f"Error checking sensor ready state: {e}")
+                safe_print(f"Error checking sensor ready state: {e}")
             time.sleep_ms(500)  # Check every 500ms
         
         if not sensor_ready:
-            print("Warning: Sensor may not be fully ready, continuing anyway...")
+            safe_print("Warning: Sensor may not be fully ready, continuing anyway...")
+        wdt.feed()
 
-        print("Starting particle data collection and API transmission...")
+        safe_print("Starting particle data collection and API transmission...")
         if SCHEDULED_SENDING:
-            print(f"Reading sensor data every {MEASUREMENT_PERIOD_S} seconds")
-            print(f"Sending data to API every {SEND_INTERVAL_MINUTES} minutes at exact intervals (:00, :{SEND_INTERVAL_MINUTES:02d}, :{SEND_INTERVAL_MINUTES*2:02d}, :{SEND_INTERVAL_MINUTES*3:02d})")
+            safe_print(f"Reading sensor data every {MEASUREMENT_PERIOD_S} seconds")
+            safe_print(f"Sending data to API every {SEND_INTERVAL_MINUTES} minutes at exact intervals")
             next_send_time = calculate_next_send_time()
-            print(f"Next scheduled send: {format_local_time(next_send_time)}")
+            safe_print(f"Next scheduled send: {format_local_time(next_send_time)}")
+            if not clock_looks_valid():
+                safe_print("Warning: Clock does not look valid yet. Send schedule may be inaccurate.")
         else:
-            print(f"Sending data every {MEASUREMENT_PERIOD_S} seconds")
-        print("-" * 60)
+            safe_print(f"Sending data every {MEASUREMENT_PERIOD_S} seconds")
+        safe_print("-" * 60)
 
         try:
             latest_vals = None
+            loop_count = 0
+            last_send_ticks = time.ticks_ms()
+            fallback_interval_ms = SEND_INTERVAL_MINUTES * 60 * 1000
             while True:
+                wdt.feed()
+
+                # Periodic time resync to limit long-term drift
+                if TIME_SYNC_ENABLED and last_time_sync_utc is not None:
+                    now_utc = time.time()
+                    if now_utc - last_time_sync_utc >= (TIME_SYNC_INTERVAL_HOURS * 3600):
+                        safe_print("Periodic NTP re-sync due")
+                        if sync_time_ntp():
+                            last_time_sync_utc = time.time()
+                            if SCHEDULED_SENDING:
+                                next_send_time = calculate_next_send_time()
+                                safe_print(f"Schedule refreshed. Next send: {format_local_time(next_send_time)}")
+                        wdt.feed()
+                
+                # Periodic garbage collection every 20 loops (~5 min)
+                loop_count += 1
+                if loop_count % 20 == 0:
+                    gc.collect()
+                
                 # Read sensor data
-                vals = sps.read_measured_values_float()
+                try:
+                    vals = sps.read_measured_values_float()
+                except Exception as e:
+                    safe_print(f"Sensor read failed: {e}; retrying next cycle")
+                    time.sleep(1)
+                    wdt.feed()
+                    continue
                 latest_vals = vals
                 
                 # Determine if we should send data
@@ -708,29 +843,50 @@ def main():
                     # Check if it's time to send
                     if current_local >= next_send_time:
                         should_send = True
-                        next_send_time = calculate_next_send_time()
-                        print(f"\nScheduled send time reached. Next send: {format_local_time(next_send_time)}")
+                        safe_print("\nScheduled send time reached")
+                    else:
+                        # Fallback in case RTC drifts or jumps unexpectedly
+                        elapsed_ms = time.ticks_diff(time.ticks_ms(), last_send_ticks)
+                        if elapsed_ms >= fallback_interval_ms:
+                            should_send = True
+                            safe_print("\nFallback send due to elapsed interval")
                 else:
                     # Send every cycle in non-scheduled mode
                     should_send = True
                 
                 if should_send:
+                    # Ensure WiFi is still connected before sending
+                    wlan = network.WLAN(network.STA_IF)
+                    if not wlan.isconnected():
+                        safe_print("WiFi disconnected — reconnecting...")
+                        connect_wifi()
+                        wdt.feed()
+                    
                     # Send data to API
                     success = send_to_api(vals)
+                    wdt.feed()
                     
                     if success:
+                        last_send_ticks = time.ticks_ms()
+                        if SCHEDULED_SENDING:
+                            next_send_time = calculate_next_send_time()
+                            safe_print(f"Next scheduled send: {format_local_time(next_send_time)}")
+
                         # Also print a summary to console for local monitoring
                         mass_PM1, mass_PM2_5, mass_PM4, mass_PM10, \
                         num_PM0_5, num_PM1, num_PM2_5, num_PM4, num_PM10, tps_um = vals
                         
-                        # Convert to #/ft³ for display
+                        # Convert to #/ft3 for display
                         num_PM0_5_ft3 = num_PM0_5 * CM3_TO_FT3
                         
-                        print(f"✓ Room: {ROOM_NAME} | Sensor: {SENSOR_NUMBER} | "
-                              f"Total particles: {round(num_PM0_5_ft3, 0)} #/ft³ | "
-                              f"PM2.5 mass: {round(mass_PM2_5, 1)} µg/m³")
+                        safe_print(f"Room: {ROOM_NAME} | Sensor: {SENSOR_NUMBER} | "
+                              f"Total particles: {round(num_PM0_5_ft3, 0)} #/ft3 | "
+                              f"PM2.5 mass: {round(mass_PM2_5, 1)} ug/m3")
                     else:
-                        print("Failed to send data to API - will retry next scheduled time")
+                        if SCHEDULED_SENDING:
+                            safe_print("Failed to send data to API - will retry on next loop")
+                        else:
+                            safe_print("Failed to send data to API")
                 else:
                     # Just log the reading without sending
                     mass_PM1, mass_PM2_5, mass_PM4, mass_PM10, \
@@ -738,11 +894,14 @@ def main():
                     num_PM0_5_ft3 = num_PM0_5 * CM3_TO_FT3
                     
                     current_time_str = format_local_time(time.time() + (UTC_OFFSET_HOURS * 3600))
-                    print(f"[{current_time_str}] Reading: {round(num_PM0_5_ft3, 0)} #/ft³, PM2.5: {round(mass_PM2_5, 1)} µg/m³")
+                    safe_print(f"[{current_time_str}] Reading: {round(num_PM0_5_ft3, 0)} #/ft3, PM2.5: {round(mass_PM2_5, 1)} ug/m3")
 
-                time.sleep(MEASUREMENT_PERIOD_S)
+                # Sleep in 1-second chunks so we can keep feeding the watchdog
+                for _ in range(MEASUREMENT_PERIOD_S):
+                    time.sleep(1)
+                    wdt.feed()
         except KeyboardInterrupt:
-            print("\nShutting down...")
+            safe_print("\nShutting down...")
             LED_PIN.off()  # Turn off LED when shutting down
         finally:
             try:
@@ -751,9 +910,8 @@ def main():
             except Exception:
                 pass 
     except Exception as e:
-        print(f"Unexpected error in main(): {e}")
+        safe_print(f"Unexpected error in main(): {e}")
         led_error_code("general")  # 2 long blinks for general error
-        # Optional: you could also print the error to a file for debugging
         try:
             with open("error_log.txt", "a") as f:
                 f.write(f"Error at {time.time()}: {e}\n")
@@ -761,10 +919,41 @@ def main():
             pass 
 
 if __name__ == "__main__":
-    # Uncomment the next line to run network diagnostics only
-    # test_network_connectivity(); exit()
+    # Headless-safe boot: wait a few seconds so the Pico W's power rails
+    # and CYW43 WiFi chip are fully stable before touching any peripherals.
+    time.sleep(5)
     
-    main()
+    # Retry loop — if main() crashes for any reason, log it and try again
+    # rather than leaving the Pico dead until someone power-cycles it.
+    MAX_RETRIES = 10          # give up after this many consecutive failures
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            main()
+            # In production, main() is expected to run forever.
+            # If it returns, treat it as a failure so we restart cleanly.
+            raise RuntimeError("main() returned unexpectedly")
+        except Exception as e:
+            retry_count += 1
+            try:
+                with open("error_log.txt", "a") as f:
+                    f.write(f"top-level crash #{retry_count} at {time.time()}: {e}\n")
+            except:
+                pass
+            safe_print(f"main() crashed ({e}), restarting in 10 s  ({retry_count}/{MAX_RETRIES})")
+            LED_PIN.off()
+            time.sleep(10)
+            gc.collect()
+    
+    # If we exhausted retries, do a hard reset so the watchdog/board starts fresh
+    if retry_count >= MAX_RETRIES:
+        try:
+            with open("error_log.txt", "a") as f:
+                f.write(f"Exhausted {MAX_RETRIES} retries at {time.time()}, resetting...\n")
+        except:
+            pass
+        import machine
+        machine.reset()
 
 
 
