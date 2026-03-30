@@ -633,7 +633,7 @@ def main():
         if not connect_wifi():
             safe_print("Cannot proceed without WiFi connection")
             led_error_code("wifi")  # 3 blinks for WiFi error
-            return
+            raise RuntimeError("WiFi connection failed during startup")
         wdt.feed()
 
         # Sync RTC time for accurate scheduled sending
@@ -674,7 +674,7 @@ def main():
                     f.write(f"I2C Init Error at {time.time()}: {e}\n")
             except:
                 pass
-            return
+            raise RuntimeError("I2C initialization failed")
         wdt.feed()
         
         # Scan for devices with retries
@@ -702,7 +702,7 @@ def main():
             safe_print("- GND: Ground")
             safe_print("- Pull-up resistors on SDA/SCL (usually built into Pico)")
             led_error_code("sensor")  # 5 blinks for sensor not found
-            return
+            raise RuntimeError("SPS30 not found on I2C bus")
         
         safe_print(f"SPS30 found at {hex(ADDR)}")
         
@@ -721,7 +721,7 @@ def main():
                     f.write(f"SPS30 Communication Error at {time.time()}: Cannot communicate with sensor\n")
             except:
                 pass
-            return
+            raise RuntimeError("SPS30 communication test failed")
         else:
             safe_print("SPS30 communication test passed")
         wdt.feed()
@@ -762,7 +762,7 @@ def main():
                     f.write(f"Measurement Start Failed after retries at {time.time()}\n")
             except:
                 pass
-            return
+            raise RuntimeError("Failed to start SPS30 measurement")
         wdt.feed()
 
         # Warm-up: sensor specifies ~1 s cadence; stable startup may take several seconds.
@@ -903,6 +903,7 @@ def main():
         except KeyboardInterrupt:
             safe_print("\nShutting down...")
             LED_PIN.off()  # Turn off LED when shutting down
+            raise
         finally:
             try:
                 sps.stop_measurement()
@@ -917,6 +918,7 @@ def main():
                 f.write(f"Error at {time.time()}: {e}\n")
         except:
             pass 
+        raise
 
 if __name__ == "__main__":
     # Headless-safe boot: wait a few seconds so the Pico W's power rails
