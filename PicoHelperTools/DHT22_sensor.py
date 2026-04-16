@@ -51,6 +51,17 @@ def log_error(msg):
     except Exception:
         pass
 
+
+def sleep_with_wdt(total_seconds, step_seconds=1):
+    """Sleep in short chunks so the watchdog can be fed during long waits."""
+    end_ticks = time.ticks_add(time.ticks_ms(), int(total_seconds * 1000))
+    while time.ticks_diff(end_ticks, time.ticks_ms()) > 0:
+        remaining_ms = time.ticks_diff(end_ticks, time.ticks_ms())
+        sleep_ms = min(int(step_seconds * 1000), remaining_ms)
+        time.sleep_ms(sleep_ms)
+        if _wdt:
+            _wdt.feed()
+
 # ===== Onboard LED =====
 LED_PIN = Pin("LED", Pin.OUT)
 
@@ -58,6 +69,7 @@ LED_PIN = Pin("LED", Pin.OUT)
 DATA_PIN = 2            # GPIO pin connected to DHT22 data line (GP2 by default)
 
 MEASUREMENT_PERIOD_S = 30   # How often to take a reading (seconds; min 2 for DHT22)
+LOG_EACH_READING = True     # Print each sensor reading so runtime progress is visible
 
 # Scheduled sending: if True, send at fixed intervals (:00, :15, :30, :45, etc.)
 # If False, send every MEASUREMENT_PERIOD_S.
@@ -80,8 +92,8 @@ WIFI_PASSWORD = "u0919472632117"
 # API endpoint — add /env-data route to the server before deploying
 API_URL = "https://nfhistory.nanofab.utah.edu/env-data"
 
-ROOM_NAME = "HEADLESS"   # Room/location label sent with every reading
-SENSOR_NUMBER = "001"    # Unique sensor identifier
+ROOM_NAME = "DHT"   # Room/location label sent with every reading
+SENSOR_NUMBER = "010"    # Unique sensor identifier
 
 UTC_OFFSET_HOURS = -7    # MST = -7, MDT = -6
 
@@ -388,6 +400,13 @@ def main():
 
         LED_PIN.off()
 
+        if LOG_EACH_READING:
+            safe_print(
+                "Reading — temp: {:.1f} °C  humidity: {:.1f} %".format(
+                    temperature_c, humidity_pct
+                )
+            )
+
         # Decide whether it is time to send
         current_local = time.time() + UTC_OFFSET_HOURS * 3600
         should_send = (
@@ -407,10 +426,17 @@ def main():
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     log_error(f"Too many failures ({consecutive_failures}) — resetting")
                     machine.reset()
+        elif SCHEDULED_SENDING and clock_looks_valid():
+            wait_s = int(next_send_local - current_local)
+            if wait_s > 0:
+                safe_print(
+                    "Waiting for next send slot: {} (in {}s)".format(
+                        format_time(next_send_local), wait_s
+                    )
+                )
 
         # Sleep until next measurement
-        time.sleep(MEASUREMENT_PERIOD_S)
-        _wdt.feed()
+        sleep_with_wdt(MEASUREMENT_PERIOD_S)
 
 
 main()

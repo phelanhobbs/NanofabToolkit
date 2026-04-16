@@ -10,11 +10,16 @@
 # Fix: redirect sys.stdout and sys.stderr to a no-op sink so every write
 # returns immediately without touching the USB hardware.
 #
-# TO DEBUG WITH A TERMINAL: comment out the three lines under "Headless mode"
+# TO DEBUG WITH A TERMINAL: comment out or remove the "Headless mode" block
 # below, save this file to the Pico, then reconnect USB and reboot.  All
 # safe_print() output will appear in the terminal as normal.
 
 import sys
+
+try:
+    import os
+except ImportError:
+    os = None
 
 class _Sink:
     def write(self, s):
@@ -23,5 +28,25 @@ class _Sink:
         pass
 
 # ---- Headless mode ----
-sys.stdout = _Sink()
-sys.stderr = _Sink()
+_sink = _Sink()
+
+try:
+    sys.stdout = _sink
+except Exception:
+    pass
+
+try:
+    sys.stderr = _sink
+except Exception:
+    pass
+
+if os is not None and hasattr(os, "dupterm"):
+    try:
+        os.dupterm(None, 1)
+    except TypeError:
+        try:
+            os.dupterm(None)
+        except Exception:
+            pass
+    except Exception:
+        pass
