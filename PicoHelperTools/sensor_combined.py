@@ -31,6 +31,11 @@ import dht
 from machine import I2C, Pin, WDT
 
 try:
+    import socket
+except ImportError:
+    socket = None
+
+try:
     import ntptime
 except ImportError:
     ntptime = None
@@ -109,9 +114,11 @@ WIFI_PASSWORD = "u0919472632117"
 
 # API endpoint — combined sensor data
 API_URL = "https://nfhistory.nanofab.utah.edu/sensor-data"
+API_HOST = "nfhistory.nanofab.utah.edu"
+DNS_RECOVERY_RETRIES = 2
 
 ROOM_NAME = "COMBINED"      # Room/location label
-SENSOR_NUMBER = "001"        # Unique sensor identifier
+SENSOR_NUMBER = "011"        # Unique sensor identifier
 
 UTC_OFFSET_HOURS = -7        # MST = -7, MDT = -6
 
@@ -123,6 +130,11 @@ MICROPYTHON_TO_UNIX_EPOCH = 946684800
 
 MAX_CONSECUTIVE_FAILURES = 5
 WIFI_RESET_INTERVAL_MS = 24 * 3600 * 1000  # full WiFi reset every 24 hours
+HTTP_TIMEOUT_S = 5
+HTTP_SEND_RETRIES = 2
+ENABLE_WATCHDOG = False
+WDT_TIMEOUT_MS = 8000
+WDT_MAX_TIMEOUT_MS = 8388
 
 
 # ===== SPS30 I2C driver =====
@@ -243,6 +255,8 @@ def connect_wifi(max_attempts=3):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     time.sleep(1)
+    if _wdt:
+        _wdt.feed()
 
     status_names = {
         0: "IDLE", 1: "CONNECTING", 2: "WRONG_PASSWORD",
@@ -258,6 +272,8 @@ def connect_wifi(max_attempts=3):
         except Exception:
             pass
         time.sleep(1)
+        if _wdt:
+            _wdt.feed()
 
         safe_print(f"WiFi attempt {attempt + 1}/{max_attempts}...")
         try:
@@ -265,6 +281,8 @@ def connect_wifi(max_attempts=3):
         except Exception as e:
             safe_print(f"connect() failed: {e}")
             time.sleep(2)
+            if _wdt:
+                _wdt.feed()
             continue
 
         timeout = 20
@@ -282,6 +300,8 @@ def connect_wifi(max_attempts=3):
             safe_print(f"Attempt {attempt + 1} failed — status {st} ({status_names.get(st, '?')})")
             wlan.disconnect()
             time.sleep(2)
+            if _wdt:
+                _wdt.feed()
 
     safe_print("WiFi connect failed")
     return False
@@ -318,12 +338,90 @@ def read_dht22(sensor):
     return sensor.temperature(), sensor.humidity()
 
 
+def check_api_dns():
+    """Resolve the API host and return True if DNS lookup succeeds."""
+    if socket is None:
+        return True
+
+    wlan = network.WLAN(network.STA_IF)
+
+    for attempt in range(DNS_RECOVERY_RETRIES + 1):
+        try:
+            info = socket.getaddrinfo(API_HOST, 443)
+            if info:
+                safe_print("API DNS resolved: {}".format(info[0][4][0]))
+            return True
+        except Exception as e:
+            msg = "API DNS lookup failed for {}: {}".format(API_HOST, e)
+            safe_print(msg)
+            log_error(msg)
+
+            if attempt >= DNS_RECOVERY_RETRIES:
+                break
+
+            safe_print("DNS recovery {}/{}: reconnecting WiFi...".format(
+                attempt + 1, DNS_RECOVERY_RETRIES
+            ))
+
+            try:
+                if wlan.isconnected():
+                    safe_print("WiFi config: {}".format(wlan.ifconfig()))
+                wlan.disconnect()
+            except Exception:
+                pass
+
+            sleep_with_wdt(2)
+            connect_wifi(max_attempts=1)
+            sleep_with_wdt(1)
+
+    return False
+
+
+def is_timeout_oserror(err):
+    """Return True for ETIMEDOUT-like OSError variants used by MicroPython."""
+    try:
+        if err.args and err.args[0] == 110:
+            return True
+    except Exception:
+        pass
+    return "ETIMEDOUT" in str(err)
+
+
+class NoopWDT:
+    def feed(self):
+        pass
+
+
+def create_watchdog():
+    if not ENABLE_WATCHDOG:
+        safe_print("Watchdog disabled (ENABLE_WATCHDOG=False)")
+        return NoopWDT()
+
+    requested_timeout = WDT_TIMEOUT_MS
+    timeout_ms = min(requested_timeout, WDT_MAX_TIMEOUT_MS)
+    if timeout_ms != requested_timeout:
+        safe_print(
+            "Requested WDT timeout {}ms exceeds RP2040 max {}ms; using {}ms".format(
+                requested_timeout, WDT_MAX_TIMEOUT_MS, timeout_ms
+            )
+        )
+    try:
+        return WDT(timeout=timeout_ms)
+    except Exception as e:
+        safe_print("WDT init failed ({}); continuing without watchdog".format(e))
+        log_error("WDT init failed: {}".format(e))
+        return NoopWDT()
+
+
 # ===== Combined API send =====
 
 def send_to_api(particle_vals, temperature_c, humidity_pct):
     """POST combined particle + environmental data to the server. Returns True on success."""
     response = None
     try:
+        if not check_api_dns():
+            return False
+
         utc_timestamp = time.time() + MICROPYTHON_TO_UNIX_EPOCH
         local_timestamp = utc_timestamp + (UTC_OFFSET_HOURS * 3600)
 
@@ -396,19 +494,54 @@ def send_to_api(particle_vals, temperature_c, humidity_pct):
         safe_print(f"Sending combined data ({len(json_data)} bytes)...")
 
         headers = {"Content-Type": "application/json"}
-        response = urequests.post(API_URL, data=json_data, headers=headers, timeout=7)
 
-        if response.status_code == 200:
-            safe_print(f"API OK ({response.status_code})")
-            return True
-        else:
-            msg = f"API error {response.status_code}"
-            safe_print(msg)
-            log_error(msg)
-            return False
+        for attempt in range(HTTP_SEND_RETRIES + 1):
+            try:
+                response = urequests.post(
+                    API_URL,
+                    data=json_data,
+                    headers=headers,
+                    timeout=HTTP_TIMEOUT_S,
+                )
+
+                if response.status_code == 200:
+                    safe_print(f"API OK ({response.status_code})")
+                    return True
+
+                msg = f"API error {response.status_code}"
+                safe_print(msg)
+                log_error(msg)
+                return False
+
+            except OSError as e:
+                if not is_timeout_oserror(e):
+                    raise
+
+                msg = "send_to_api timeout attempt {}/{}: {}".format(
+                    attempt + 1, HTTP_SEND_RETRIES + 1, e
+                )
+                safe_print(msg)
+                log_error(msg)
+
+                if attempt >= HTTP_SEND_RETRIES:
+                    raise
+
+                safe_print("Timeout recovery: reconnecting WiFi before retry...")
+                try:
+                    network.WLAN(network.STA_IF).disconnect()
+                except Exception:
+                    pass
+                sleep_with_wdt(2)
+                connect_wifi(max_attempts=1)
+                sleep_with_wdt(1)
 
     except OSError as e:
-        msg = f"send_to_api OSError: {e}"
+        if e.args and e.args[0] == -2:
+            msg = "send_to_api OSError: -2 (DNS/name resolution or host lookup failure for {})".format(API_HOST)
+        elif is_timeout_oserror(e):
+            msg = "send_to_api OSError: ETIMEDOUT (server reachable by DNS, but TCP/HTTPS timed out)"
+        else:
+            msg = f"send_to_api OSError: {e}"
         safe_print(msg)
         log_error(msg)
         return False
@@ -455,7 +588,7 @@ def led_error_code(error_type):
 def main():
     global _wdt
 
-    wdt = WDT(timeout=8300)
+    wdt = create_watchdog()
     _wdt = wdt
     wdt.feed()
 
@@ -683,7 +816,7 @@ def main():
                         temp_str = "{:.1f}C".format(latest_temperature) if latest_temperature is not None else "N/A"
                         hum_str = "{:.1f}%".format(latest_humidity) if latest_humidity is not None else "N/A"
                         safe_print(
-                            "{} | {}/ft3 | PM2.5: {} ug/m3 | {}  {}".format(
+                            "{} | {}/ft3 | PM2.5: {} ug/m3 | Temp: {} | RH: {}".format(
                                 ROOM_NAME, round(num_PM0_5_ft3),
                                 round(mass_PM2_5, 1), temp_str, hum_str
                             )
@@ -702,10 +835,12 @@ def main():
                     # Log reading without sending
                     num_PM0_5_ft3 = particle_vals[4] * CM3_TO_FT3
                     mass_PM2_5 = particle_vals[1]
+                    temp_str = "{:.1f}C".format(latest_temperature) if latest_temperature is not None else "N/A"
+                    hum_str = "{:.1f}%".format(latest_humidity) if latest_humidity is not None else "N/A"
                     t_str = format_local_time(time.time() + UTC_OFFSET_HOURS * 3600)
                     safe_print(
-                        "[{}] {}/ft3  PM2.5: {}".format(
-                            t_str, round(num_PM0_5_ft3), round(mass_PM2_5, 1)
+                        "[{}] {}/ft3  PM2.5: {}  Temp: {}  RH: {}".format(
+                            t_str, round(num_PM0_5_ft3), round(mass_PM2_5, 1), temp_str, hum_str
                         )
                     )
 
