@@ -42,12 +42,15 @@ def convert_to_mountain(dt):
 
 
 class RoomFrame(QFrame):
-    """Custom QFrame for room color management"""
+    """Custom QFrame for room color management with env data sub-boxes"""
+    _ENV_YELLOW = "background-color: #FFFF99; border: 0.5px solid #999; border-radius: 1px;"
+    _ENV_HAS_DATA = "background-color: #A8D8A8; border: 0.5px solid #999; border-radius: 1px;"
+
     def __init__(self, parent, room_name, initial_color="#FFFFE0"):
         super().__init__()
         self.parent = parent
         self.room_name = room_name
-        self.state = "yellow"  # Track current state: yellow, red, green
+        self.state = "yellow"
         self.colors = {
             "yellow": "#FFFFE0",
             "red": "#FF6B6B",
@@ -55,13 +58,92 @@ class RoomFrame(QFrame):
         }
         self.setFrameStyle(QFrame.Box)
         self.setStyleSheet(f"background-color: {initial_color}; border: 0.5px solid #666;")
-        
+
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(1, 1, 1, 1)
+        main_layout.setSpacing(1)
+        self.setLayout(main_layout)
+
+        # Top env strip — temp (left) and humidity (right)
+        env_strip = QWidget()
+        env_strip.setStyleSheet("background: transparent; border: none;")
+        env_layout = QHBoxLayout()
+        env_layout.setContentsMargins(0, 0, 0, 0)
+        env_layout.setSpacing(1)
+        env_strip.setLayout(env_layout)
+
+        self.temp_frame = QFrame()
+        self.temp_frame.setFrameStyle(QFrame.Box)
+        self.temp_frame.setStyleSheet(self._ENV_YELLOW)
+        temp_inner = QVBoxLayout()
+        temp_inner.setContentsMargins(1, 0, 1, 0)
+        self.temp_label = QLabel("T:--")
+        self.temp_label.setAlignment(Qt.AlignCenter)
+        self.temp_label.setStyleSheet("font-size: 6px; color: #333; background: transparent; border: none; padding: 0px;")
+        temp_inner.addWidget(self.temp_label)
+        self.temp_frame.setLayout(temp_inner)
+
+        self.hum_frame = QFrame()
+        self.hum_frame.setFrameStyle(QFrame.Box)
+        self.hum_frame.setStyleSheet(self._ENV_YELLOW)
+        hum_inner = QVBoxLayout()
+        hum_inner.setContentsMargins(1, 0, 1, 0)
+        self.hum_label = QLabel("H:--")
+        self.hum_label.setAlignment(Qt.AlignCenter)
+        self.hum_label.setStyleSheet("font-size: 6px; color: #333; background: transparent; border: none; padding: 0px;")
+        hum_inner.addWidget(self.hum_label)
+        self.hum_frame.setLayout(hum_inner)
+
+        env_layout.addWidget(self.temp_frame, 1)
+        env_layout.addWidget(self.hum_frame, 1)
+
+        # Room name label
+        room_label = QLabel(room_name)
+        room_label.setAlignment(Qt.AlignCenter)
+        room_label.setStyleSheet("""
+            font-size: 8px;
+            font-weight: bold;
+            padding: 2px;
+            color: white;
+            background-color: rgba(0, 0, 0, 180);
+            border-radius: 3px;
+            margin: 2px;
+        """)
+
+        # env strip = 1 part, label = 4 parts  → 20% / 80%
+        main_layout.addWidget(env_strip, 1)
+        main_layout.addWidget(room_label, 4)
+
     def set_color_state(self, state):
         """Set the color state programmatically"""
         if state in self.colors:
             self.state = state
             new_color = self.colors[self.state]
             self.setStyleSheet(f"background-color: {new_color}; border: 0.5px solid #666;")
+
+    def set_env_data(self, temperature_c, humidity_pct):
+        """Update the temperature and humidity sub-boxes"""
+        if temperature_c is not None:
+            try:
+                self.temp_label.setText(f"T:{float(temperature_c):.0f}°")
+                self.temp_frame.setStyleSheet(self._ENV_HAS_DATA)
+            except (ValueError, TypeError):
+                self.temp_label.setText("T:--")
+                self.temp_frame.setStyleSheet(self._ENV_YELLOW)
+        else:
+            self.temp_label.setText("T:--")
+            self.temp_frame.setStyleSheet(self._ENV_YELLOW)
+
+        if humidity_pct is not None:
+            try:
+                self.hum_label.setText(f"H:{float(humidity_pct):.0f}%")
+                self.hum_frame.setStyleSheet(self._ENV_HAS_DATA)
+            except (ValueError, TypeError):
+                self.hum_label.setText("H:--")
+                self.hum_frame.setStyleSheet(self._ENV_YELLOW)
+        else:
+            self.hum_label.setText("H:--")
+            self.hum_frame.setStyleSheet(self._ENV_YELLOW)
 
 
 class ParticleDataViewer(QMainWindow):
@@ -144,29 +226,10 @@ class ParticleDataViewer(QMainWindow):
         # Create room squares
         for room in rooms:
             room_frame = RoomFrame(self, room['name'], room['color'])
-            
-            # Store reference to room frame
             self.room_frames[room['name']] = room_frame
-            
-            room_label = QLabel(room['name'])
-            room_label.setAlignment(Qt.AlignCenter)
-            room_label.setStyleSheet("""
-                font-size: 8px; 
-                font-weight: bold; 
-                padding: 2px;
-                color: white;
-                background-color: rgba(0, 0, 0, 180);
-                border-radius: 3px;
-                margin: 2px;
-            """)
-            
-            room_frame_layout = QVBoxLayout()
-            room_frame_layout.addWidget(room_label)
-            room_frame.setLayout(room_frame_layout)
             room_frame.setMinimumSize(40, 30)
-            
-            room_layout.addWidget(room_frame, room['row'], room['col'], 
-                                room['rowspan'], room['colspan'])
+            room_layout.addWidget(room_frame, room['row'], room['col'],
+                                  room['rowspan'], room['colspan'])
         
         # Set spacing and margins
         room_layout.setSpacing(2)
@@ -312,6 +375,7 @@ class ParticleDataViewer(QMainWindow):
         # Reset all rooms to yellow (disconnected / no data)
         for room_frame in self.room_frames.values():
             room_frame.set_color_state("yellow")
+            room_frame.set_env_data(None, None)
 
         # Extract the sensor list from the API response
         if isinstance(data, dict) and "sensors" in data:
@@ -375,6 +439,8 @@ class ParticleDataViewer(QMainWindow):
                 room_frame.set_color_state("green")
             else:
                 room_frame.set_color_state("red")
+
+            room_frame.set_env_data(record.get('temperature_c'), record.get('humidity_pct'))
 
     def on_sensor_double_click(self, item):
         """Handle double-click on sensor table item"""
