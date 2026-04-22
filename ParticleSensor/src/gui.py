@@ -80,7 +80,7 @@ class RoomFrame(QFrame):
         temp_inner = QVBoxLayout()
         temp_inner.setContentsMargins(1, 0, 1, 0)
         temp_inner.setSpacing(0)
-        temp_name = QLabel("Temperature")
+        temp_name = QLabel("Temp")
         temp_name.setAlignment(Qt.AlignCenter)
         temp_name.setStyleSheet(_lbl_style)
         self.temp_label = QLabel("--")
