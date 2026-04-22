@@ -211,7 +211,8 @@ def clock_looks_valid():
 
 
 def format_local_time(timestamp):
-    t = time.localtime(timestamp)
+    # time.localtime() uses MicroPython epoch (2000), so convert from Unix epoch first.
+    t = time.localtime(timestamp - MICROPYTHON_TO_UNIX_EPOCH)
     return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
         t[0], t[1], t[2], t[3], t[4], t[5])
 
@@ -422,7 +423,9 @@ def send_to_api(particle_vals, temperature_c, humidity_pct):
         if not check_api_dns():
             return False
 
-        utc_timestamp = time.time() + MICROPYTHON_TO_UNIX_EPOCH
+        # On Pico W firmware, time.time() already returns Unix epoch (since 1970),
+        # so no epoch offset needed.
+        utc_timestamp = time.time()
         local_timestamp = utc_timestamp + (UTC_OFFSET_HOURS * 3600)
 
         data = {
