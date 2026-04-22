@@ -72,14 +72,21 @@ class RoomFrame(QFrame):
         env_layout.setSpacing(1)
         env_strip.setLayout(env_layout)
 
+        _lbl_style = "font-size: 6px; color: #333; background: transparent; border: none; padding: 0px;"
+
         self.temp_frame = QFrame()
         self.temp_frame.setFrameStyle(QFrame.Box)
         self.temp_frame.setStyleSheet(self._ENV_YELLOW)
         temp_inner = QVBoxLayout()
         temp_inner.setContentsMargins(1, 0, 1, 0)
-        self.temp_label = QLabel("T:--")
+        temp_inner.setSpacing(0)
+        temp_name = QLabel("Temperature")
+        temp_name.setAlignment(Qt.AlignCenter)
+        temp_name.setStyleSheet(_lbl_style)
+        self.temp_label = QLabel("--")
         self.temp_label.setAlignment(Qt.AlignCenter)
-        self.temp_label.setStyleSheet("font-size: 6px; color: #333; background: transparent; border: none; padding: 0px;")
+        self.temp_label.setStyleSheet(_lbl_style)
+        temp_inner.addWidget(temp_name)
         temp_inner.addWidget(self.temp_label)
         self.temp_frame.setLayout(temp_inner)
 
@@ -88,9 +95,14 @@ class RoomFrame(QFrame):
         self.hum_frame.setStyleSheet(self._ENV_YELLOW)
         hum_inner = QVBoxLayout()
         hum_inner.setContentsMargins(1, 0, 1, 0)
-        self.hum_label = QLabel("H:--")
+        hum_inner.setSpacing(0)
+        hum_name = QLabel("Humidity")
+        hum_name.setAlignment(Qt.AlignCenter)
+        hum_name.setStyleSheet(_lbl_style)
+        self.hum_label = QLabel("--")
         self.hum_label.setAlignment(Qt.AlignCenter)
-        self.hum_label.setStyleSheet("font-size: 6px; color: #333; background: transparent; border: none; padding: 0px;")
+        self.hum_label.setStyleSheet(_lbl_style)
+        hum_inner.addWidget(hum_name)
         hum_inner.addWidget(self.hum_label)
         self.hum_frame.setLayout(hum_inner)
 
@@ -125,24 +137,24 @@ class RoomFrame(QFrame):
         """Update the temperature and humidity sub-boxes"""
         if temperature_c is not None:
             try:
-                self.temp_label.setText(f"T:{float(temperature_c):.0f}°")
+                self.temp_label.setText(f"{float(temperature_c):.1f}°C")
                 self.temp_frame.setStyleSheet(self._ENV_HAS_DATA)
             except (ValueError, TypeError):
-                self.temp_label.setText("T:--")
+                self.temp_label.setText("--")
                 self.temp_frame.setStyleSheet(self._ENV_YELLOW)
         else:
-            self.temp_label.setText("T:--")
+            self.temp_label.setText("--")
             self.temp_frame.setStyleSheet(self._ENV_YELLOW)
 
         if humidity_pct is not None:
             try:
-                self.hum_label.setText(f"H:{float(humidity_pct):.0f}%")
+                self.hum_label.setText(f"{float(humidity_pct):.1f}%")
                 self.hum_frame.setStyleSheet(self._ENV_HAS_DATA)
             except (ValueError, TypeError):
-                self.hum_label.setText("H:--")
+                self.hum_label.setText("--")
                 self.hum_frame.setStyleSheet(self._ENV_YELLOW)
         else:
-            self.hum_label.setText("H:--")
+            self.hum_label.setText("--")
             self.hum_frame.setStyleSheet(self._ENV_YELLOW)
 
 
