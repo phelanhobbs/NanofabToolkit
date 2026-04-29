@@ -1,4 +1,4 @@
-name: Build ParticleSensor Windows Executable
+name: Build Windows Executables
 
 on:
   push:
@@ -7,35 +7,122 @@ on:
     types: [created]
 
 jobs:
-  build:
+  build-particle-sensor:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: |
-          pip install pyinstaller requests PyQt5 matplotlib numpy pytz
-
-      - name: Build executable
+        run: pip install pyinstaller requests PyQt5 matplotlib numpy pytz
+      - name: Build
         working-directory: ParticleSensor
         run: pyinstaller ParticleSensor.spec
-
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ParticleSensor-Windows
           path: ParticleSensor/dist/ParticleSensor.exe
           if-no-files-found: error
-
-      - name: Attach exe to GitHub release
+      - name: Attach to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: ParticleSensor/dist/ParticleSensor.exe
+
+  build-denton-decoder:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pyinstaller numpy matplotlib scipy
+      - name: Build
+        working-directory: DentonDecoder
+        run: pyinstaller DentonDecoder.spec
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentonDecoder-Windows
+          path: DentonDecoder/dist/DentonDecoder.exe
+          if-no-files-found: error
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DentonDecoder/dist/DentonDecoder.exe
+
+  build-ald-peak-counter:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pyinstaller numpy matplotlib scipy
+      - name: Build
+        working-directory: ALDPeakCounter
+        run: pyinstaller ALDPeakCounter.spec
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALDPeakCounter-Windows
+          path: ALDPeakCounter/dist/ALDPeakCounter.exe
+          if-no-files-found: error
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ALDPeakCounter/dist/ALDPeakCounter.exe
+
+  build-paralyene-reader:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pyinstaller requests matplotlib numpy scipy
+      - name: Build
+        working-directory: ParalyneReader
+        run: pyinstaller ParalyneReader.spec
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParalyneReader-Windows
+          path: ParalyneReader/dist/ParalyneReader.exe
+          if-no-files-found: error
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ParalyneReader/dist/ParalyneReader.exe
+
+  build-precious-metal-reader:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pyinstaller requests
+      - name: Build
+        working-directory: PreciousMetalReader
+        run: pyinstaller PreciousMetalReader.spec
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PreciousMetalReader-Windows
+          path: PreciousMetalReader/dist/PreciousMetalReader.exe
+          if-no-files-found: error
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PreciousMetalReader/dist/PreciousMetalReader.exe
