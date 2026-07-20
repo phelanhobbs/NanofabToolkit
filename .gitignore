@@ -56,3 +56,6 @@ auth.py
 *.csv
 *.json
 
+
+# Device credentials (Pico) -- never commit
+picosecrets.py

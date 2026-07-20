@@ -108,9 +108,11 @@ NTP_SERVERS = (
     "time.nist.gov",
 )
 
-# WiFi credentials
-WIFI_SSID = "ULink"
-WIFI_PASSWORD = "u0919472632117"
+# WiFi + API credentials live in picosecrets.py (untracked -- copy it to the Pico).
+try:
+    from picosecrets import WIFI_SSID, WIFI_PASSWORD, API_KEY
+except ImportError:
+    raise RuntimeError("picosecrets.py missing on device (needs WIFI_SSID, WIFI_PASSWORD, API_KEY)")
 
 # API endpoint — combined sensor data
 API_URL = "https://nfhistory.nanofab.utah.edu/sensor-data"
@@ -496,7 +498,7 @@ def send_to_api(particle_vals, temperature_c, humidity_pct):
         json_data = ujson.dumps(data)
         safe_print(f"Sending combined data ({len(json_data)} bytes)...")
 
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "X-API-Key": API_KEY}
 
         for attempt in range(HTTP_SEND_RETRIES + 1):
             try:
