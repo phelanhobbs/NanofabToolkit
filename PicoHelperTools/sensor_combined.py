@@ -40,6 +40,11 @@ try:
 except ImportError:
     ntptime = None
 
+try:
+    import random as _random
+except ImportError:
+    _random = None
+
 # Module-level WDT reference so helpers can feed it without passing it around.
 _wdt = None
 
@@ -119,8 +124,8 @@ API_URL = "https://nfhistory.nanofab.utah.edu/sensor-data"
 API_HOST = "nfhistory.nanofab.utah.edu"
 DNS_RECOVERY_RETRIES = 2
 
-ROOM_NAME = "COMBINED"      # Room/location label
-SENSOR_NUMBER = "011"        # Unique sensor identifier
+ROOM_NAME = "BayE"      # Room/location label
+SENSOR_NUMBER = "3"        # Unique sensor identifier
 
 UTC_OFFSET_HOURS = -7        # MST = -7, MDT = -6
 
@@ -130,7 +135,14 @@ CM3_TO_FT3 = 28316.8
 # MicroPython RP2040 epoch is 2000-01-01; server expects Unix epoch (1970-01-01).
 MICROPYTHON_TO_UNIX_EPOCH = 946684800
 
-MAX_CONSECUTIVE_FAILURES = 5
+# Exponential backoff on repeated send failures — prevents a fleet of sensors
+# from hammering the server (and tripping campus IPS rate-limits) during an
+# outage. The wait doubles after each failure: BASE, 2×BASE, 4×BASE ... capped
+# at MAX, with ±JITTER randomization so sensors don't retry in lockstep.
+SEND_BACKOFF_BASE_S = 30          # first wait after a failure
+SEND_BACKOFF_MAX_S = 900          # cap the wait at 15 minutes
+SEND_BACKOFF_JITTER = 0.25        # ±25% so a whole fleet desyncs
+HARD_RESET_AFTER_FAILURES = 20    # last-resort board reset only if truly wedged
 WIFI_RESET_INTERVAL_MS = 24 * 3600 * 1000  # full WiFi reset every 24 hours
 HTTP_TIMEOUT_S = 5
 HTTP_SEND_RETRIES = 2
@@ -388,6 +400,28 @@ def is_timeout_oserror(err):
     except Exception:
         pass
     return "ETIMEDOUT" in str(err)
+
+
+def backoff_delay_s(failure_count):
+    """Exponential backoff (seconds) with jitter, capped at SEND_BACKOFF_MAX_S.
+
+    failure_count is 1 for the first failure and doubles each time:
+    BASE, 2×BASE, 4×BASE ... then held at MAX. Jitter spreads a whole fleet
+    out so they don't all retry at the same instant after a shared outage.
+    """
+    exp = failure_count - 1
+    if exp > 16:            # cap the shift so 2**exp can't overflow
+        exp = 16
+    delay = SEND_BACKOFF_BASE_S * (2 ** exp)
+    if delay > SEND_BACKOFF_MAX_S:
+        delay = SEND_BACKOFF_MAX_S
+    if _random is not None and SEND_BACKOFF_JITTER > 0:
+        spread = delay * SEND_BACKOFF_JITTER
+        try:
+            delay += _random.uniform(-spread, spread)
+        except Exception:
+            pass
+    return delay if delay >= 1 else 1
 
 
 class NoopWDT:
@@ -732,6 +766,7 @@ def main():
         try:
             loop_count = 0
             consecutive_failures = 0
+            send_backoff_until = time.ticks_ms()  # ticks deadline; <=now = no backoff
             last_send_ticks = time.ticks_ms()
             last_wifi_reset_ticks = time.ticks_ms()
             last_dht_read = 0
@@ -796,6 +831,11 @@ def main():
                 else:
                     should_send = True
 
+                # Hold off while in post-failure backoff, so an outage can't turn
+                # into a retry storm (which is what tripped the campus IPS).
+                if should_send and time.ticks_diff(send_backoff_until, time.ticks_ms()) > 0:
+                    should_send = False
+
                 if should_send:
                     # Reconnect WiFi if needed
                     if not network.WLAN(network.STA_IF).isconnected():
@@ -810,6 +850,7 @@ def main():
 
                     if success:
                         consecutive_failures = 0
+                        send_backoff_until = time.ticks_ms()
                         last_send_ticks = time.ticks_ms()
                         if SCHEDULED_SENDING:
                             next_send_time = calculate_next_send_time()
@@ -828,13 +869,25 @@ def main():
                         )
                     else:
                         consecutive_failures += 1
-                        safe_print(
-                            "Send failed ({}/{})".format(
-                                consecutive_failures, MAX_CONSECUTIVE_FAILURES
-                            )
+                        backoff_s = backoff_delay_s(consecutive_failures)
+                        send_backoff_until = time.ticks_add(
+                            time.ticks_ms(), int(backoff_s * 1000)
                         )
-                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                            log_error(f"Too many failures ({consecutive_failures}) — resetting")
+                        msg = "Send failed (#{}) — backing off {}s before retry".format(
+                            consecutive_failures, round(backoff_s)
+                        )
+                        safe_print(msg)
+                        log_error(msg)
+                        # Backoff (not reset) is the normal response to a failure, so a
+                        # server/network outage can never become a hammering storm.
+                        # Reset only as a last resort if we're wedged for a very long
+                        # stretch (local stack fault) — by then backoff is at its cap.
+                        if consecutive_failures >= HARD_RESET_AFTER_FAILURES:
+                            log_error(
+                                "Persistent send failures ({}) — resetting board".format(
+                                    consecutive_failures
+                                )
+                            )
                             machine.reset()
                 else:
                     # Log reading without sending
