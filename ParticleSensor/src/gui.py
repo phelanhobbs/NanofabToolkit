@@ -15,10 +15,11 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QTableWidget, 
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QTableWidget,
                              QTableWidgetItem, QFrame, QLabel, QMessageBox,
-                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout, QDateEdit, QFileDialog)
+                             QHeaderView, QComboBox, QSplitter, QCheckBox, QGridLayout, QDateEdit, QFileDialog,
+                             QAbstractItemView, QScrollArea)
 from PyQt5.QtCore import Qt, QDate
 from PyQt5.QtGui import QMouseEvent
 
@@ -261,12 +262,19 @@ class ParticleDataViewer(QMainWindow):
         right_label.setAlignment(Qt.AlignCenter)
         right_layout.addWidget(right_label)
         
-        # Information label about double-click functionality
-        info_label = QLabel("💡 Double-click any sensor row to view historical data")
+        # Information label about double-click and multi-select compare
+        info_label = QLabel("💡 Double-click a row for one sensor's history; Ctrl/Shift+click to select multiple, then Compare")
         info_label.setAlignment(Qt.AlignCenter)
         info_label.setStyleSheet("color: #666; font-style: italic; margin: 5px; font-size: 12px;")
+        info_label.setWordWrap(True)
         right_layout.addWidget(info_label)
-        
+
+        # Compare Selected button — opens a multi-sensor comparison window
+        self.compare_button = QPushButton("Compare Selected")
+        self.compare_button.clicked.connect(self.on_compare_selected)
+        self.compare_button.setMaximumWidth(180)
+        right_layout.addWidget(self.compare_button, alignment=Qt.AlignCenter)
+
         # Create table
         self.table = QTableWidget()
         # Define columns
@@ -280,6 +288,8 @@ class ParticleDataViewer(QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
         self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.table.itemDoubleClicked.connect(self.on_sensor_double_click)
         right_layout.addWidget(self.table)
         
@@ -459,14 +469,44 @@ class ParticleDataViewer(QMainWindow):
         row = item.row()
         room_name_item = self.table.item(row, 0)
         sensor_number_item = self.table.item(row, 1)
-        
+
         if room_name_item and sensor_number_item:
             room_name = room_name_item.text()
             sensor_number = sensor_number_item.text()
-            
+
             # Open historical data window
             self.historical_window = HistoricalDataWindow(room_name, sensor_number, self.api_url)
             self.historical_window.show()
+
+    def on_compare_selected(self):
+        """Open a comparison window for all currently selected sensor rows."""
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(
+                self, "No Selection",
+                "Select one or more sensor rows (Ctrl/Shift+click) before comparing."
+            )
+            return
+
+        sensors = []
+        seen = set()
+        for index in sorted(selected_rows, key=lambda x: x.row()):
+            row = index.row()
+            room_item = self.table.item(row, 0)
+            sensor_item = self.table.item(row, 1)
+            if not (room_item and sensor_item):
+                continue
+            key = (room_item.text(), sensor_item.text())
+            if key in seen:
+                continue
+            seen.add(key)
+            sensors.append(key)
+
+        if not sensors:
+            return
+
+        self.comparison_window = ComparisonWindow(sensors, self.api_url)
+        self.comparison_window.show()
 
 
 class HistoricalDataWindow(QMainWindow):
@@ -1150,6 +1190,293 @@ class HistoricalDataWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Error exporting data to CSV:\n{str(e)}")
+
+
+class ComparisonWindow(QMainWindow):
+    """Side-by-side comparison of historical data from multiple sensors.
+
+    Shows one stacked subplot per sensor, sharing the time axis so trends
+    line up vertically. Y-axis can optionally be shared across sensors for
+    direct magnitude comparison.
+    """
+
+    def __init__(self, sensors, api_url):
+        super().__init__()
+        self.sensors = sensors  # list of (room_name, sensor_number) tuples
+        self.api_url = api_url
+        self.sensor_data = {s: [] for s in sensors}
+        self.filtered_data = {s: [] for s in sensors}
+        self.init_ui()
+        self.load_all_data()
+
+    def init_ui(self):
+        n = len(self.sensors)
+        self.setWindowTitle(f"Sensor Comparison ({n} sensor{'s' if n != 1 else ''})")
+        self.setGeometry(180, 180, 1300, 850)
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout()
+        central_widget.setLayout(main_layout)
+
+        # Title with the list of sensors being compared
+        names = ", ".join(f"{r}/{s}" for r, s in self.sensors)
+        title_label = QLabel(f"Comparing: {names}")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold; margin: 8px;")
+        title_label.setWordWrap(True)
+        main_layout.addWidget(title_label)
+
+        # Control panel: date range + metric checkboxes + axis options
+        control_layout = QHBoxLayout()
+
+        control_layout.addWidget(QLabel("Date Range:"))
+        control_layout.addWidget(QLabel("Start:"))
+
+        default_start = QDate.currentDate().addDays(-7)
+        self.start_date_edit = QDateEdit(default_start)
+        self.start_date_edit.setCalendarPopup(True)
+        self.start_date_edit.setMaximumWidth(120)
+        self.start_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.start_date_edit)
+
+        control_layout.addWidget(QLabel("End:"))
+        self.end_date_edit = QDateEdit(QDate.currentDate())
+        self.end_date_edit.setCalendarPopup(True)
+        self.end_date_edit.setMaximumWidth(120)
+        self.end_date_edit.dateChanged.connect(self.on_date_range_changed)
+        control_layout.addWidget(self.end_date_edit)
+
+        control_layout.addWidget(QLabel("  "))
+        control_layout.addWidget(QLabel("Graph:"))
+
+        self.pm_checkboxes = {}
+        graph_options = [
+            ("PM0.5", "num_pm0_5_ft3", True),
+            ("PM1",   "num_pm1_ft3",   True),
+            ("PM2.5", "num_pm2_5_ft3", True),
+            ("PM4",   "num_pm4_ft3",   True),
+            ("PM10",  "num_pm10_ft3",  True),
+            ("Temp °C",    "temperature_c", False),
+            ("Humidity %", "humidity_pct",  False),
+        ]
+        for display_name, data_key, default_checked in graph_options:
+            cb = QCheckBox(display_name)
+            cb.setChecked(default_checked)
+            cb.stateChanged.connect(self.update_graphs)
+            self.pm_checkboxes[data_key] = cb
+            control_layout.addWidget(cb)
+
+        control_layout.addWidget(QLabel("  "))
+        # Sharing the y-axis lets you compare absolute magnitudes between rooms;
+        # leaving it independent prevents a noisy room from squashing a clean one to zero.
+        self.shared_y_checkbox = QCheckBox("Shared Y-axis")
+        self.shared_y_checkbox.setChecked(False)
+        self.shared_y_checkbox.stateChanged.connect(self.update_graphs)
+        control_layout.addWidget(self.shared_y_checkbox)
+
+        control_layout.addStretch()
+        main_layout.addLayout(control_layout, 0)
+
+        # Figure goes inside a QScrollArea so many sensors stay legible
+        self.figure = Figure(figsize=(10, 4), dpi=80)
+        self.canvas = FigureCanvas(self.figure)
+        self.toolbar = NavigationToolbar(self.canvas, central_widget)
+        self.toolbar.setStyleSheet("QToolBar QToolButton { background-color: white; }")
+
+        scroll = QScrollArea()
+        scroll.setWidget(self.canvas)
+        scroll.setWidgetResizable(True)
+
+        main_layout.addWidget(self.toolbar, 0)
+        main_layout.addWidget(scroll, 1)
+
+    def on_date_range_changed(self):
+        self._filter_all()
+        self.update_graphs()
+
+    def _filter_all(self):
+        """Re-filter every sensor's records against the current date range."""
+        start_date = self.start_date_edit.date().toPyDate()
+        end_date = self.end_date_edit.date().toPyDate() + timedelta(days=1)
+
+        for sensor_key, records in self.sensor_data.items():
+            filtered = []
+            for rec in records:
+                dt = self._parse_record_timestamp(rec)
+                if dt is not None and start_date <= dt.date() < end_date:
+                    filtered.append(rec)
+            self.filtered_data[sensor_key] = filtered
+
+    def _parse_record_timestamp(self, record):
+        """Return a Mountain Time datetime from a record, or None."""
+        ts = record.get("timestamp_iso") or record.get("timestamp")
+        if ts is None:
+            return None
+        try:
+            if isinstance(ts, str):
+                dt = datetime.fromisoformat(ts.replace('Z', '+00:00')) if 'T' in ts \
+                     else datetime.fromtimestamp(float(ts))
+            else:
+                dt = datetime.fromtimestamp(float(ts))
+            return convert_to_mountain(dt)
+        except (ValueError, TypeError, OSError):
+            return None
+
+    def load_all_data(self):
+        """Fetch historical (and optional env) data for every selected sensor."""
+        failed = []
+        for sensor_key in self.sensors:
+            room_name, sensor_number = sensor_key
+            try:
+                url = f"{self.api_url}?room_name={room_name}&sensor_number={sensor_number}"
+                resp = requests.get(url, verify=False, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                if "historical_data" in data:
+                    self.sensor_data[sensor_key] = data["historical_data"]
+
+                # Env data is optional — not all sensors have it, fail silently
+                try:
+                    base_url = self.api_url.rsplit('/', 1)[0]
+                    env_url = f"{base_url}/env-data?room_name={room_name}&sensor_number={sensor_number}"
+                    env_resp = requests.get(env_url, verify=False, timeout=10)
+                    if env_resp.status_code == 200:
+                        env_json = env_resp.json()
+                        if env_json.get('status') == 'success' and 'data' in env_json:
+                            env_lookup = {row.get('timestamp_iso', ''): row
+                                          for row in env_json['data']
+                                          if row.get('timestamp_iso')}
+                            for record in self.sensor_data[sensor_key]:
+                                ts = record.get('timestamp_iso', '')
+                                if ts in env_lookup:
+                                    record['temperature_c'] = env_lookup[ts].get('temperature_c', '')
+                                    record['humidity_pct'] = env_lookup[ts].get('humidity_pct', '')
+                except Exception:
+                    pass
+            except Exception as e:
+                failed.append(f"{room_name}/{sensor_number}: {e}")
+
+        if failed:
+            QMessageBox.warning(
+                self, "Some Data Failed to Load",
+                "Failed to load data for:\n\n" + "\n".join(failed)
+            )
+
+        self._filter_all()
+        self.update_graphs()
+
+    def update_graphs(self):
+        """Redraw the stacked subplots based on selected metrics and date range."""
+        self.figure.clear()
+
+        checked = [k for k, cb in self.pm_checkboxes.items() if cb.isChecked()]
+
+        if not checked:
+            ax = self.figure.add_subplot(111)
+            ax.set_title("No Parameters Selected")
+            self.canvas.draw()
+            return
+
+        n = len(self.sensors)
+
+        # Resize the figure so each sensor's subplot has enough vertical room
+        height_per_sensor = 3.0
+        total_h = max(4.0, height_per_sensor * n)
+        self.figure.set_size_inches(10.0, total_h)
+
+        sharey = self.shared_y_checkbox.isChecked()
+
+        if n == 1:
+            axes = [self.figure.add_subplot(111)]
+        else:
+            ax_array = self.figure.subplots(n, 1, sharex=True, sharey=sharey)
+            axes = list(ax_array)
+
+        color_map = {
+            "num_pm0_5_ft3": "blue",
+            "num_pm1_ft3":   "red",
+            "num_pm2_5_ft3": "green",
+            "num_pm4_ft3":   "orange",
+            "num_pm10_ft3":  "purple",
+            "temperature_c": "firebrick",
+            "humidity_pct":  "steelblue",
+        }
+        display_names = {
+            "num_pm0_5_ft3": "PM0.5",
+            "num_pm1_ft3":   "PM1",
+            "num_pm2_5_ft3": "PM2.5",
+            "num_pm4_ft3":   "PM4",
+            "num_pm10_ft3":  "PM10",
+            "temperature_c": "Temp (°C)",
+            "humidity_pct":  "Humidity (%)",
+        }
+        env_keys = {"temperature_c", "humidity_pct"}
+        pm_params = [k for k in checked if k not in env_keys]
+        env_params = [k for k in checked if k in env_keys]
+        use_twin = bool(pm_params and env_params)
+
+        for i, sensor_key in enumerate(self.sensors):
+            room_name, sensor_number = sensor_key
+            ax1 = axes[i]
+            records = self.filtered_data.get(sensor_key, [])
+
+            ax2 = ax1.twinx() if use_twin else None
+            all_lines, all_labels = [], []
+
+            for data_key in checked:
+                target_ax = ax2 if (ax2 is not None and data_key in env_keys) else ax1
+                timestamps, values = [], []
+                for record in records:
+                    dt = self._parse_record_timestamp(record)
+                    raw = record.get(data_key)
+                    if dt is None or raw in (None, '', 'N/A'):
+                        continue
+                    try:
+                        timestamps.append(dt)
+                        values.append(float(raw))
+                    except (ValueError, TypeError):
+                        continue
+
+                if timestamps and values:
+                    pts = sorted(zip(timestamps, values))
+                    ts_s, v_s = zip(*pts)
+                    line, = target_ax.plot(
+                        ts_s, v_s,
+                        color=color_map.get(data_key, 'black'),
+                        linewidth=1.5, marker='o', markersize=2,
+                        label=display_names.get(data_key, data_key),
+                        alpha=0.85,
+                    )
+                    all_lines.append(line)
+                    all_labels.append(display_names.get(data_key, data_key))
+
+            ax1.set_title(f"{room_name} / {sensor_number}", fontsize=10, fontweight='bold')
+            ax1.grid(True, alpha=0.3)
+            ax1.set_ylabel("Count (ft³)" if pm_params else "Temp / Humidity")
+            if ax2 is not None:
+                ax2.set_ylabel("Temp (°C) / Hum (%)")
+            if all_lines:
+                ax1.legend(all_lines, all_labels, loc='upper right', fontsize=8)
+
+            if not records:
+                ax1.text(
+                    0.5, 0.5, "No data in selected range",
+                    transform=ax1.transAxes, ha='center', va='center',
+                    fontsize=11, color='gray', style='italic',
+                )
+
+        if axes:
+            axes[-1].set_xlabel("Time (Mountain Time)")
+
+        self.figure.autofmt_xdate()
+        self.figure.tight_layout()
+
+        # Match canvas pixel height to the figure size so the QScrollArea
+        # gives us scrollbars when the stack of subplots exceeds the viewport.
+        dpi = self.figure.get_dpi()
+        self.canvas.setMinimumHeight(int(total_h * dpi))
+        self.canvas.draw()
 
 
 def main():
