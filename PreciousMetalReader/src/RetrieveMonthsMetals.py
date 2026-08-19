@@ -1,9 +1,17 @@
 import sys
-from auth import HSCCode
 import requests
 import os
 import csv
 from collections import defaultdict
+
+# CORES API credential. Prefer the CORES_TOKEN environment variable (raw token, no
+# "Bearer " prefix) — matching HSCDownloader. Falls back to a local, untracked
+# auth.py (HSCCode = 'Bearer <token>') so existing installs keep working until the
+# env var is set. auth.py has never been committed to git — keep it that way.
+try:
+    HSCCode = 'Bearer ' + os.environ['CORES_TOKEN']
+except KeyError:
+    from auth import HSCCode
 
 
 BaseURL = 'https://n8n.cores.utah.edu/webhook/line_item_batch_pull?service_ids='
